@@ -7,7 +7,6 @@ ENVIRONMENT_NAME                  ?=
 DYNAMODB_ENDPOINT                 ?=
 SPARC_METADATA_DYNAMODB_TABLE_ARN ?=
 SPARC_METADATA_DYNAMODB_TABLE_ID  ?=
-DRY_RUN                           ?=
 
 .DEFAULT: help
 
