@@ -2,19 +2,14 @@
 
 PYTHON_BINARY          ?= "$(which python3.7)"
 PYTHON_VIRTUALENV      ?= "venv"
-SHELL = /bin/bash
 
-WORKING_DIR          ?= "$(shell pwd)"
-SERVICE_NAME         ?= "sparc-tools"
-FUNCTION_NAME        ?= "$(shell echo ${SERVICE_NAME} | sed -e 's/-/_/g')"
-PACKAGE_NAME         ?= "${SERVICE_NAME}-${VERSION_NUMBER}.zip"
-LOCAL_IMAGE_TAG      ?= "${SERVICE_NAME}:${VERSION_NUMBER}"
-LOCAL_CONTAINER_NAME ?= "${SERVICE_NAME}-${VERSION_NUMBER}"
-LAMBDA_BUCKET        ?= "aws-sparc-backups"
-
+ENVIRONMENT_NAME                  ?=
+DYNAMODB_ENDPOINT                 ?=
+SPARC_METADATA_DYNAMODB_TABLE_ARN ?=
+SPARC_METADATA_DYNAMODB_TABLE_ID  ?=
+DRY_RUN                           ?=
 
 .DEFAULT: help
-
 
 help:
 	@echo "Make Help"
@@ -31,3 +26,20 @@ venv:
         	pip3 install -r requirements.txt && \
 		pip3 install -r requirements_test.txt
 
+run:
+	source $(PYTHON_VIRTUALENV)/bin/activate && \
+        ENVIRONMENT_NAME=${ENVIRONMENT_NAME} \
+        DYNAMODB_ENDPOINT=${DYNAMODB_ENDPOINT} \
+        SPARC_METADATA_DYNAMODB_TABLE_ARN=${SPARC_METADATA_DYNAMODB_TABLE_ARN} \
+        SPARC_METADATA_DYNAMODB_TABLE_ID=${SPARC_METADATA_DYNAMODB_TABLE_ID} \
+        DRY_RUN=false \
+	python3 sparc_tools/main.py
+
+dryrun:
+	source $(PYTHON_VIRTUALENV)/bin/activate && \
+        ENVIRONMENT_NAME=${ENVIRONMENT_NAME} \
+        DYNAMODB_ENDPOINT=${DYNAMODB_ENDPOINT} \
+        SPARC_METADATA_DYNAMODB_TABLE_ARN=${SPARC_METADATA_DYNAMODB_TABLE_ARN} \
+        SPARC_METADATA_DYNAMODB_TABLE_ID=${SPARC_METADATA_DYNAMODB_TABLE_ID} \
+        DRY_RUN=true \
+	python3 sparc_tools/main.py
