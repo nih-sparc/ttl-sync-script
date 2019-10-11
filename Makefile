@@ -3,10 +3,9 @@
 PYTHON_BINARY          ?= "$(which python3.7)"
 PYTHON_VIRTUALENV      ?= "venv"
 
-ENVIRONMENT_NAME                  ?=
-DYNAMODB_ENDPOINT                 ?=
-SPARC_METADATA_DYNAMODB_TABLE_ARN ?=
-SPARC_METADATA_DYNAMODB_TABLE_ID  ?=
+ENVIRONMENT_NAME                  ?= prod
+DYNAMODB_ENDPOINT                 ?= https://dynamodb.us-east-1.amazonaws.com/
+SPARC_METADATA_DYNAMODB_TABLE_ID  ?= prod-sparc-metadata-table-use1
 
 .DEFAULT: help
 
@@ -29,8 +28,6 @@ run:
 	source $(PYTHON_VIRTUALENV)/bin/activate && \
         ENVIRONMENT_NAME=${ENVIRONMENT_NAME} \
         DYNAMODB_ENDPOINT=${DYNAMODB_ENDPOINT} \
-        SPARC_METADATA_DYNAMODB_TABLE_ARN=${SPARC_METADATA_DYNAMODB_TABLE_ARN} \
-        SPARC_METADATA_DYNAMODB_TABLE_ID=${SPARC_METADATA_DYNAMODB_TABLE_ID} \
         DRY_RUN=false \
 	python3 sparc_tools/main.py
 
@@ -38,7 +35,5 @@ dryrun:
 	source $(PYTHON_VIRTUALENV)/bin/activate && \
         ENVIRONMENT_NAME=${ENVIRONMENT_NAME} \
         DYNAMODB_ENDPOINT=${DYNAMODB_ENDPOINT} \
-        SPARC_METADATA_DYNAMODB_TABLE_ARN=${SPARC_METADATA_DYNAMODB_TABLE_ARN} \
-        SPARC_METADATA_DYNAMODB_TABLE_ID=${SPARC_METADATA_DYNAMODB_TABLE_ID} \
         DRY_RUN=true \
 	python3 sparc_tools/main.py
