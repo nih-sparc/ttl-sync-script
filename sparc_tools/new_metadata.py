@@ -124,8 +124,8 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
 def getDatasets(gNew, gDelta, output, iriCache):
     # Iterate over Datasets
     for ds in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Resource')):
-        m = re.search(r"https://app.blackfynn.io/N:organization:[\w-]+/datasets/(?P<ds>[:\w-]+)", ds)
-        datasetId = stripIri(m.group(1).strip())
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", ds)
+        datasetId = stripIri(m.group(0).strip())
         addEntry(output, datasetId)
         for p, o in gDelta.predicate_objects(ds):
             populateValue(gDelta, datasetId, output[datasetId], output[datasetId]['Resource'], p, o, iriCache)
@@ -133,8 +133,8 @@ def getDatasets(gNew, gDelta, output, iriCache):
 def getResearchers(gNew, gDelta, output, iriCache):
     # Iterate over Researchers
     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/contributorTo')):
-        m = re.search(r"https://app.blackfynn.io/N:organization:[\w-]+/datasets/(?P<ds>[:\w-]+)", o)
-        datasetId = stripIri(m.group(1).strip())
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
+        datasetId = stripIri(m.group(0).strip())
         user = s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
         newEntry = {}
         for p2, o2 in gDelta.predicate_objects(s):
@@ -145,7 +145,7 @@ def getResearchers(gNew, gDelta, output, iriCache):
 def getSubjects(gNew, gDelta, output, iriCache):
     # Iterate over Subjects
     for s in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Subject')):
-        m = re.search(r"https://app.blackfynn.io/N:organization:[\w-]+/datasets/(?P<ds>[:\w-]+)/subjects/(?P<sub>[\w-]+)", s)
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)/subjects/(?P<sub>[\w-]+)", s)
         datasetId = m.group(1).strip()
         subj_id = m.group(2).strip()
         output[datasetId]['Subjects'][subj_id] = {}
@@ -155,7 +155,7 @@ def getSubjects(gNew, gDelta, output, iriCache):
 def getSamples(gNew, gDelta, output, iriCache):
     # Iterate over Samples
     for s in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Sample')):
-        m = re.search(r"https://app.blackfynn.io/N:organization:[\w-]+/datasets/(?P<ds>[:\w-]+)/samples/(?P<sub>.*$)", s)
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)/samples/(?P<sub>.*$)", s)
         datasetId = m.group(1).strip()
         sampleId = m.group(2).strip()
         newEntry = {}
@@ -167,8 +167,8 @@ def getSamples(gNew, gDelta, output, iriCache):
 def getProtocols(gNew, gDelta, output, iriCache):
     # Iterate over Protocols
     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/hasProtocol')):
-        m = re.search(r"https://app.blackfynn.io/N:organization:[\w-]+/datasets/(?P<ds>[:\w-]+)", s)
-        datasetId = m.group(1).strip()
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
+        datasetId = stripIri(m.group(0).strip())
         url = str(o)
         newEntry = {}
         for p2, o2 in gDelta.predicate_objects(o):
@@ -179,8 +179,9 @@ def getProtocols(gNew, gDelta, output, iriCache):
 def getAwards(g, output):
     # Iterate over awards
     for s, o in g.subj((None, term.URIRef('http://uri.interlex.org/temp/uris/awards'),None)):
-        m = re.search(r"https://app.blackfynn.io/N:organization:[\w-]+/datasets/(?P<ds>[:\w-]+)", s)
-        ds = m.group(1).strip()
+        print(s)
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
+        ds = stripIri(m.group(0).strip())
         output[ds]['Awards'].append(stripIri(o.strip()))
 
 # TODO: make an 'Organization' model using ror.org API

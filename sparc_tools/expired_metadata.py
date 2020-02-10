@@ -140,38 +140,40 @@ def populateExpiredValue(output, datasetId, model, identifier, p, o, iriCache):
 #%%
 def getExpiredDatasets(g, output):
     for ds in g.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Resource')):
-        datasetId = stripIri(ds.strip())
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", ds)
+        datasetId = stripIri(m.group(0).strip())
         d = addDataset(output, datasetId)
         d['expired'] = True
 
 def getExpiredResearchers(g, output):
     for s, o in g.subject_objects(URIRef('http://uri.interlex.org/temp/uris/contributorTo')):
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
+        datasetId = stripIri(m.group(0).strip())
         user = s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
-        datasetId = stripIri(o)
         r = addRecord(output, datasetId, 'researcher', user)
         r['expired'] = True
 
 def getExpiredSubjects(g, output):
     for s in g.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Subject')):
-        m = re.search(r"https://api.blackfynn.io/datasets/(?P<ds>[:\w-]+)/subjects/(?P<sub>[\w-]+)", s)
-        datasetId = m.group(1)
-        subjId = m.group(2)
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)/subjects/(?P<sub>[\w-]+)", s)
+        datasetId = m.group(1).strip()
+        subjId = m.group(2).strip()
         r = addRecord(output, datasetId, 'subject', subjId)
         r['expired'] = True
 
 def getExpiredSamples(g, output):
     for s in g.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Sample')):
-        m = re.search(r"https://api.blackfynn.io/datasets/(?P<ds>[:\w-]+)/samples/(?P<sub>[\w-]+)", s)
-        datasetId = m.group(1)
-        sampleId = m.group(2)
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)/samples/(?P<sub>.*$)", s)
+        datasetId = m.group(1).strip()
+        sampleId = m.group(2).strip()
         r = addRecord(output, datasetId, 'sample', sampleId)
         r['expired'] = True
 
 def getExpiredProtocols(g, output):
     for s, o in g.subject_objects(URIRef('http://uri.interlex.org/temp/uris/hasProtocol')):
-        m = re.search(r"https://api.blackfynn.io/datasets/(?P<ds>[:\w-]+)", s)
-        datasetId = m.group(1)
-        protocolUrl = stripIri(o.strip())
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
+        datasetId = stripIri(m.group(0).strip())
+        protocolUrl = str(o)
         r = addRecord(output, datasetId, 'protocol', protocolUrl)
         r['expired'] = True
 
@@ -186,38 +188,41 @@ def getExpiredAwards(g, output):
 #%%
 def getExpiredDatasetProperties(gIntersect, gDelta, output, iriCache):
     for ds in gIntersect.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Resource')):
-        datasetId = stripIri(ds)
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", ds)
+        datasetId = stripIri(m.group(0).strip())
         for p, o in gDelta.predicate_objects(ds):
             populateExpiredValue(output, datasetId, 'summary', datasetId, p, o, iriCache)
 
 def getExpiredResearcherProperties(gIntersect, gDelta, output, iriCache):
     for s,p,o in gIntersect.triples( (None, URIRef('http://uri.interlex.org/temp/uris/contributorTo'), None) ):
-        datasetId = stripIri(o)
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
+        datasetId = stripIri(m.group(0).strip())
         user = s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
         for p2, o2 in gDelta.predicate_objects(s):
             populateExpiredValue(output, datasetId, 'researcher', user, p2, o2, iriCache)
 
 def getExpiredSubjectProperties(gIntersect, gDelta, output, iriCache):
     for s in gIntersect.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Subject')):
-        m = re.search(r"https://api.blackfynn.io/datasets/(?P<ds>[:\w-]+)/subjects/(?P<sub>[\w-]+)", s)
-        datasetId = m.group(1)
-        subjId = m.group(2)
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)/subjects/(?P<sub>[\w-]+)", s)
+        datasetId = m.group(1).strip()
+        subjId = m.group(2).strip()
         for p2, o2 in gDelta.predicate_objects(s):
             populateExpiredValue(output, datasetId, 'subject', subjId, p2, o2, iriCache)
 
 def getExpiredSampleProperties(gIntersect, gDelta, output, iriCache):
     for s in gIntersect.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Sample')):
-        m = re.search(r"https://api.blackfynn.io/datasets/(?P<ds>[:\w-]+)/samples/(?P<sub>[\w-]+)", s)
-        datasetId = m.group(1)
-        sampleId = m.group(2)
+
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)/samples/(?P<sub>.*$)", s)
+        datasetId = m.group(1).strip()
+        sampleId = m.group(2).strip()
         for p2, o2 in gDelta.predicate_objects(s):
             populateExpiredValue(output, datasetId, 'sample', sampleId, p2, o2, iriCache)
 
 def getExpiredProtocolProperties(gIntersect, gDelta, output, iriCache):
     for s,p,o in gIntersect.triples((None, URIRef('http://uri.interlex.org/temp/uris/hasProtocol'), None)):
-        m = re.search(r"https://api.blackfynn.io/datasets/(?P<ds>[:\w-]+)", s)
-        datasetId = m.group(1)
-        protocolUrl = stripIri(o.strip())
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
+        datasetId = stripIri(m.group(0).strip())
+        protocolUrl = str(o)
         for p2, o2 in gDelta.predicate_objects(o):
             populateExpiredValue(output, datasetId, 'protocol', protocolUrl, p2, o2, iriCache)
 

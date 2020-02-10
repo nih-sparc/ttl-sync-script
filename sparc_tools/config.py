@@ -11,10 +11,10 @@ class Configs(object):
     environment_name = os.environ.get("ENVIRONMENT_NAME", "test")
     service_name = os.environ.get("SERVICE_NAME", "sparc-tools")
     dry_run = os.environ.get("DRY_RUN")
-    if dry_run == "False":
-        dry_run = False
-    else:
+    if dry_run == "True":
         dry_run = True
+    else:
+        dry_run = False
     blackfynn_log_bind = {
         "service_name": service_name,
         "environment_name": environment_name,
@@ -46,10 +46,10 @@ class Configs(object):
         ssm_path = "/{}/sparc-tools/".format(environment_name)
 
         # Pull configurations from SSM
+        last_updated = ssm.get_parameter(Name=ssm_path + "last_updated")
         blackfynn_api_token = ssm.get_parameter(Name=ssm_path + "blackfynn-api-key", WithDecryption=True)["Parameter"]["Value"]
         blackfynn_api_secret = ssm.get_parameter(Name=ssm_path + "blackfynn-api-secret", WithDecryption=True)["Parameter"]["Value"]
         blackfynn_host="https://api.blackfynn.io/"
-        last_updated = ssm.get_parameter(Name=ssm_path + "last_updated")
         #last_updated = "2019-07-23T09:59:50,233853"
         working_directory = "/tmp"
 

@@ -71,6 +71,8 @@ def authorized(dsId):
         role = api._get(api._uri('/{dsId}/role', dsId=dsId)).get('role')
     except UnauthorizedException:
         return False
+    except:
+        return False
     return role == 'manager'
 
 def getDataset(dsId):
@@ -105,23 +107,36 @@ def getModel(ds, name, displayName, schema=None, linked=None):
     if linked is None:
         linked = []
     try:
-        model = ds.create_model(name, displayName, schema=schema)
-        if linked:
-            model.add_linked_properties(linked)
-    except HTTPError:
         model = ds.get_model(name)
+        #log.info("model '{}' found in dataset '{}': updating it".format(model, ds.name))
         try:
             for s in schema:
                 s.id = model.schema[s.name].id
-            model.schema = {s.name: s for s in schema}
-            model.update()
             newLinks = [l for l in linked if l.name not in model.linked]
+            newProps = [p for p in schema if p.name not in model.schema]
+            model.schema = {s.name: s for s in schema}
+            #log.info("model schema is: {}".format(model.schema))
+            #log.info("model new linked props are: {}".format(newLinks))
+            if newProps:
+                model.update()
             if newLinks:
-                model.add_linked_properties(newLinks)
-        except:
-            log.info("Error adding model '{}' with schema '{}' to dataset '{}'".format(model, schema, ds.name))
+                try:
+                    #log.info("newLinks '{}' found in dataset '{}': updating".format(newLinks, ds.name))
+                    model.add_linked_properties(newLinks)
+                except Exception as e:
+                    log.info("Error adding linked properties '{}' to dataset '{}': {}".format(newLinks, ds.name, e))
+        except Exception as e:
+            log.info("Error updating model '{}' with schema '{}' to dataset '{}': {}".format(model, schema, ds.name, e))
+    except HTTPError:
+        #log.info("model '{}' not found in dataset '{}': trying to create it".format(name, ds.name))
+        try:
+            model = ds.create_model(name, displayName, schema=schema)
+            if linked:
+                model.add_linked_properties(linked)
+        except Exception as e:
+            log.info("Error creating model '{}' with schema '{}' in dataset '{}': {}".format(model, schema, ds.name, e))
     return model
-    
+
 
 ### Parsing JSON data:
 def getJson(_type):
@@ -190,7 +205,7 @@ def buildCache(dsId):
     res = table.query(KeyConditionExpression=Key(cfg.table_partition_key).eq(dsId))
     cache = {m: {} for m in MODEL_NAMES}
     for item in res['Items']:
-        cache[item['model']][item['identifier']] = item['record_id']
+        cache[item['model']][item['identifier']] = item['recordId']
     log.debug('Retrieved {} database records for {}'.format(res['Count'], dsId))
     return cache
 
@@ -203,28 +218,35 @@ def writeCache(dsId, recordCache):
         'identifier': k,
         'id': v}
         for model, records in recordCache.items() for k, v in records.items()]
-        
+
     table = getTable()
     oldItems = table.query(KeyConditionExpression=Key(cfg.table_partition_key).eq(dsId))
     with table.batch_writer() as batch:
         for item in oldItems['Items']:
             try:
                 batch.delete_item(Key={cfg.table_partition_key: dsId, cfg.table_sort_key: item['recordId']})
-            except KeyError:
-                log.error('Key Error File "/var/task/parse_json.py", line 200, in writeCache')
-                print(item)
+            except KeyError as e:
+                log.error('Key Error File "/var/task/parse_json.py", line 212, in writeCache')
+            except Exception as e:
+                print("an exception occured")
+                print(e)
                 sys.exit()
 
+    with table.batch_writer() as batch:
         for e in newEntries:
             try:
-                batch.put_item(Item={
+                new_item = {
                     cfg.table_partition_key: e['datasetId'],
                     cfg.table_sort_key: e['id'],
                     'model': e['model'],
                     'identifier': e['identifier']
-                })
-            except KeyError:
-                log.error('Key Error File "/var/task/parse_json.py", line 210, in writeCache')
+                }
+                batch.put_item(Item=new_item)
+            except KeyError as k:
+                log.error('Key Error File "/var/task/parse_json.py", line 221, in writeCache')
+                print(k)
+            except Exception as e:
+                print("an exception occured")
                 print(e)
                 sys.exit()
 
@@ -261,7 +283,10 @@ def deleteData(ds, models, recordCache, node):
             if recNode['values'] or recNode['arrayValues']:
                 log.debug('Deleting properties of record {}'.format(record))
                 removeProperties(ds, record, recordCache, recNode['values'], recNode['arrayValues'])
-            removeRecords(model, recordCache, *oldRecs)
+                try:
+                    removeRecords(model, recordCache, *oldRecs)
+                except:
+                    log.info("Error trying to delete record {}".format(record))
 
 def removeRecords(model, recordCache, *recordNames):
     'Remove record(s), but only if they exist both in the cache and on the platform'
@@ -301,7 +326,10 @@ def removeProperties(ds, record, recordCache, values, arrayValues):
         if v in ignoreProps[model.type]:
             continue
         elif v in model.linked:
-            record.delete_linked_value(v)
+            try:
+                record.delete_linked_value(v)
+            except:
+                log.info("Error trying to delete record linked value {}".format(v))
         else:
             record._set_value(v, None)
         try:
@@ -355,12 +383,11 @@ def addData(ds, dsId, recordCache, node, file):
     Add and/or update records in a dataset
     '''
 
-    pkgList = get_packages(ds)
     addProtocols(ds, recordCache, node['Protocols'], file)
     addTerms(ds, recordCache, node['Terms'], file)
     addResearchers(ds, recordCache, node['Researcher'], file)
     addSubjects(ds, recordCache, node['Subjects'], file)
-    addSamples(ds, recordCache, node['Samples'], file, pkgList)
+    addSamples(ds, recordCache, node['Samples'], file)
     addSummary(ds, recordCache, dsId, node['Resource'], file)
 
 def updateRecord(ds, recordCache, model, identifier, values, file, links=None, relationships=None):
@@ -375,9 +402,13 @@ def updateRecord(ds, recordCache, model, identifier, values, file, links=None, r
     try:
         recId = recordCache[model.type][identifier]
     except KeyError:
-        rec = model.create_record(values)
-        recordCache[model.type][identifier] = rec.id
-        log.debug('Created new record: {}'.format( rec))
+        try:
+            rec = model.create_record(values)
+            recordCache[model.type][identifier] = rec.id
+            log.debug('Created new record: {}'.format( rec))
+        except Exception as e:
+            log.error("Failed to create record with values {}".format(values))
+            return None
     else:
         rec = model.get(recId)
         log.debug('Retrieved record from cache: {}'.format(rec))
@@ -459,7 +490,6 @@ def addRelationships(ds, recordCache, model, record, relationships, file):
                 log.error("Failed to add '{}' relationship to record '{}'".format(rt.type, record))
                 raise BlackfynnException(e)
 
-
 #%% [markdown]
 ### Functions to update records of each model type
 #%%
@@ -473,9 +503,11 @@ def addProtocols(ds, recordCache, subNode, file):
         ])
     for url, protocol in subNode.items():
         protocol['url'] = url
-        file.append("Adding protocols '{}' to dataset '{}'".format(protocol, ds))
+        prot = {k: protocol.get(k) for k in ('label', 'url', 'protocolHasNumberOfSteps', 'hasNumberOfProtcurAnnotations')}
+        file.append("Adding protocols '{}' to dataset '{}'".format(prot, ds))
+
         if not cfg.dry_run:
-            updateRecord(ds, recordCache, model, url, protocol, file)
+                updateRecord(ds, recordCache, model, url, prot, file)
 
 def addTerms(ds, recordCache, subNode, file):
     log.info("Adding terms...")
@@ -607,8 +639,11 @@ def addSubjects(ds, recordCache, subNode, file):
                 else:
                     value = subjNode[prop.name]
                 links[prop.name] = value
-        file.append("Adding subject '{}' to dataset '{}'".format(transform(subjNode, subjId), ds))
-        updateRecord(ds, recordCache, model, subjId, transform(subjNode, subjId), file, links)
+        file.append("Adding subject '{}' to dataset '{}'".format( subjId, ds))
+        try:
+            updateRecord(ds, recordCache, model, subjId, transform(subjNode, subjId), file, links)
+        except Exception as e:
+            log.error("Addition of subject '{}' failed because of {}".format(subjId, e))
 
 def contains(list, filter):
     for x in list:
@@ -616,7 +651,7 @@ def contains(list, filter):
             return x
     return False
 
-def addSamples(ds, recordCache, subNode, file, pkgList):
+def addSamples(ds, recordCache, subNode, file):
     log.info("Adding samples...")
     model = getModel(ds, 'sample', 'Sample',
         schema=[
@@ -651,6 +686,9 @@ def addSamples(ds, recordCache, subNode, file, pkgList):
             'localExecutionNumber': subNode.get('localExecutionNumber'),
             'providerNote': subNode.get('providerNote')
         }
+
+    if subNode:
+        pkgList = get_packages(ds)
 
     regex = re.compile(r'.*/subjects/(.+)')
     for sampleId, subNode in subNode.items():
@@ -744,8 +782,10 @@ def addSummary(ds, recordCache, identifier, subNode, file):
         relations.setdefault('protocol-employs-technique', []).append(value)
 
     file.append("Adding summary '{}' to dataset '{}'".format(transform(subNode), ds))
-    updateRecord(ds, recordCache, model, identifier, transform(subNode), file, relationships=relations)
-
+    try:
+        updateRecord(ds, recordCache, model, identifier, transform(subNode), file, relationships=relations)
+    except Exception as e:
+        log.error("Failed to add summary to dataset '{}'".format(ds))
 
 #%% [markdown]
 ### Main body
@@ -859,7 +899,10 @@ def updateAll(reset=False):
     duration = int((time() - delete_start_time) * 1000)
     log.info("Deleted old metadata in {} milliseconds".format(duration))
 
+    log.info('===========================')
     log.info('=== Adding new metadata ===')
+    log.info('===========================')
+    log.info('')
     new_start_time = time()
     for dsId, node in newJson.items():
         log.info('Current dataset: {}'.format(dsId))

@@ -29,7 +29,31 @@ def main(event = None, context = None):
     lastUpdated = metadata_versions.getLastUpdated()
     latestVersion = metadata_versions.latestVersion()
 
-    if lastUpdated is None or lastUpdated == "0":
+    log.info(latestVersion)
+    if len(sys.argv) > 1 and sys.argv[1] == "retry":
+        log.info('Running parse_json.updateAll(reset=True)')
+        parse_json.updateAll(reset=True)
+    elif len(sys.argv) > 1 and sys.argv[1] == "retryDiff":
+        log.info('Running parse_json.updateAll(reset=False)')
+        parse_json.updateAll()
+    elif len(sys.argv) > 1 and sys.argv[1] == "fullJsonOnly":
+        log.info('New metadata version: {} old version: {}'.format(latestVersion, lastUpdated))
+        metadata_versions.getTTL(latestVersion, TTL_FILE_NEW)
+
+        log.info('Metadata file downloaded.')
+        new_metadata.buildJson('full')
+
+        log.info('json File build')
+    elif len(sys.argv) > 1 and sys.argv[1] == "diffJsonOnly":
+        log.info('New metadata version: {} old version: {}'.format(latestVersion, lastUpdated))
+        metadata_versions.getTTL(lastUpdated, TTL_FILE_OLD)
+        metadata_versions.getTTL(latestVersion, TTL_FILE_NEW)
+        log.info('Metadata files downloaded.')
+
+        expired_metadata.buildJson()
+        log.info('expired Metadata file build.')
+        new_metadata.buildJson('diff')
+    elif lastUpdated is None or lastUpdated == "0":
         # Full update to latest version
         log.info('New metadata version: {} old version: {}'.format(latestVersion, lastUpdated))
         metadata_versions.getTTL(latestVersion, TTL_FILE_NEW)
@@ -51,7 +75,9 @@ def main(event = None, context = None):
         log.info('Metadata files downloaded.')
 
         expired_metadata.buildJson()
+        log.info('expired Metadata file build.')
         new_metadata.buildJson('diff')
+        log.info('new Metadata file build.')
         # fallback to a full reset/update for any datasets that failed to update:
         failedDatasets = parse_json.updateAll()
         parse_json.update(failedDatasets, reset=True)
