@@ -19,6 +19,7 @@ JSON_METADATA_NEW = '/tmp/new_metadata.json'
 TTL_FILE_OLD = '/tmp/curation-export-old.ttl'
 TTL_FILE_NEW = '/tmp/curation-export-new.ttl'
 INSTRUCTION_FILE = '/tmp/instructions_list.txt'
+SPARC_DATASET_ID = 'N:dataset:bed6add3-09c0-4834-b129-c3b406240f3d'
 
 # List of dataset Ids to skip instead of updating
 SKIP_LIST = []
@@ -117,6 +118,7 @@ def stripIri(iri):
         'http://uri.interlex.org/tgbugs/uris/readable/technique/',
         'http://uri.interlex.org/tgbugs/uris/readable/aspect/unit/',
         'http://uri.interlex.org/tgbugs/uris/readable/sparc/',
+        'http://uri.interlex.org/temp/uris/awards/',
         'http://uri.interlex.org/temp/uris/',
         'https://api.blackfynn.io/users/',
         'https://api.blackfynn.io/datasets/',

@@ -26,8 +26,6 @@ import sys
 
 from rdflib import BNode, Graph, URIRef, term
 from rdflib.namespace import RDF, RDFS, SKOS, OWL
-import requests
-from requests.compat import quote_plus
 
 from base import (
     JSON_METADATA_FULL,
@@ -48,7 +46,7 @@ log = logging.getLogger(__name__)
 def addEntry(output, datasetId):
     "Add a value for output[datasetId] if it doesn't already exist"
     output.setdefault(datasetId,
-        {'Resource':{},'Researcher':{},'Subjects':{},'Protocols':{},'Terms':{},'Samples':{}})
+        {'Resource':{},'Researcher':{},'Subjects':{},'Protocols':{},'Terms':{},'Samples':{}, 'Awards': {}})
 
 def parseMeasure(g, node, values):
     for v in g.objects(subject=node):
@@ -128,6 +126,8 @@ def getDatasets(gNew, gDelta, output, iriCache):
         datasetId = stripIri(m.group(0).strip())
         addEntry(output, datasetId)
         for p, o in gDelta.predicate_objects(ds):
+            if p == URIRef("http://uri.interlex.org/temp/uris/hasAwardNumber"):
+                getAwards(o, datasetId, output)
             populateValue(gDelta, datasetId, output[datasetId], output[datasetId]['Resource'], p, o, iriCache)
 
 def getResearchers(gNew, gDelta, output, iriCache):
@@ -176,13 +176,10 @@ def getProtocols(gNew, gDelta, output, iriCache):
         if newEntry:
             output[datasetId]['Protocols'][url] = newEntry
 
-def getAwards(g, output):
+def getAwards(awardIdURI, dsId, output):
     # Iterate over awards
-    for s, o in g.subj((None, term.URIRef('http://uri.interlex.org/temp/uris/awards'),None)):
-        print(s)
-        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
-        ds = stripIri(m.group(0).strip())
-        output[ds]['Awards'].append(stripIri(o.strip()))
+    awardId = stripIri(awardIdURI)
+    output[dsId]['Awards'][awardId] = dsId
 
 # TODO: make an 'Organization' model using ror.org API
 
@@ -222,7 +219,6 @@ def buildJson(_type):
     getSubjects(gNew, gDelta, output, iriCache)
     getSamples(gNew, gDelta, output, iriCache)
     getProtocols(gNew, gDelta, output, iriCache)
-    #getAwards(gNew, gDelta, output)
     del iriCache
 
     with open(outputFile, 'w') as f:

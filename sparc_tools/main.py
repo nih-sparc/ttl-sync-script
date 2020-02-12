@@ -53,9 +53,9 @@ def main(event = None, context = None):
         expired_metadata.buildJson()
         log.info('expired Metadata file build.')
         new_metadata.buildJson('diff')
-    elif lastUpdated is None or lastUpdated == "0":
+    elif (len(sys.argv) > 1 and sys.argv[1] == "forceOverwrite") or lastUpdated is None or lastUpdated == "0":
         # Full update to latest version
-        log.info('New metadata version: {} old version: {}'.format(latestVersion, lastUpdated))
+        log.info('New metadata version: {}'.format(latestVersion, lastUpdated))
         metadata_versions.getTTL(latestVersion, TTL_FILE_NEW)
 
         log.info('Metadata file downloaded.')
@@ -84,6 +84,7 @@ def main(event = None, context = None):
 
     if not cfg.dry_run:
         metadata_versions.setLastUpdated(latestVersion)
+        parse_json.update_sparc_dataset()
 
 if __name__ == '__main__':
     main()

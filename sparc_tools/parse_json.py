@@ -14,6 +14,7 @@ import logging
 import re
 import sys
 import os
+import requests
 
 from blackfynn import Blackfynn, ModelProperty, LinkedModelProperty
 from blackfynn.base import UnauthorizedException
@@ -30,12 +31,13 @@ from base import (
     JSON_METADATA_NEW,
     SKIP_LIST,
     INSTRUCTION_FILE,
+    SPARC_DATASET_ID,
     SSMClient
 )
 from config import Configs
 from pprint import pprint
 
-MODEL_NAMES = ('protocol', 'researcher', 'sample', 'subject', 'summary', 'term')
+MODEL_NAMES = ('protocol', 'researcher', 'sample', 'subject', 'summary', 'term', 'award')
 logging.basicConfig(format="%(asctime);s%(filename)s:%(lineno)d:\t%(message)s")
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
@@ -108,20 +110,14 @@ def getModel(ds, name, displayName, schema=None, linked=None):
         linked = []
     try:
         model = ds.get_model(name)
-        #log.info("model '{}' found in dataset '{}': updating it".format(model, ds.name))
         try:
             for s in schema:
                 s.id = model.schema[s.name].id
             newLinks = [l for l in linked if l.name not in model.linked]
-            newProps = [p for p in schema if p.name not in model.schema]
             model.schema = {s.name: s for s in schema}
-            #log.info("model schema is: {}".format(model.schema))
-            #log.info("model new linked props are: {}".format(newLinks))
-            if newProps:
-                model.update()
+            model.update()
             if newLinks:
                 try:
-                    #log.info("newLinks '{}' found in dataset '{}': updating".format(newLinks, ds.name))
                     model.add_linked_properties(newLinks)
                 except Exception as e:
                     log.info("Error adding linked properties '{}' to dataset '{}': {}".format(newLinks, ds.name, e))
@@ -388,6 +384,7 @@ def addData(ds, dsId, recordCache, node, file):
     addResearchers(ds, recordCache, node['Researcher'], file)
     addSubjects(ds, recordCache, node['Subjects'], file)
     addSamples(ds, recordCache, node['Samples'], file)
+    addAwards(ds, recordCache, dsId, node['Awards'], file)
     addSummary(ds, recordCache, dsId, node['Resource'], file)
 
 def updateRecord(ds, recordCache, model, identifier, values, file, links=None, relationships=None):
@@ -404,8 +401,8 @@ def updateRecord(ds, recordCache, model, identifier, values, file, links=None, r
     except KeyError:
         try:
             rec = model.create_record(values)
+            log.debug('Created new record: {}'.format(rec))
             recordCache[model.type][identifier] = rec.id
-            log.debug('Created new record: {}'.format( rec))
         except Exception as e:
             log.error("Failed to create record with values {}".format(values))
             return None
@@ -524,7 +521,6 @@ def addTerms(ds, recordCache, subNode, file):
             ModelProperty('categories', 'Categories', data_type=ModelPropertyEnumType(
                 data_type=str, multi_select=True)), # is a list
             ModelProperty('iri', 'IRI'),
-            #ModelProperty('deprecated', 'Is deprecated', bool),
         ])
 
     def transform(term):
@@ -719,17 +715,17 @@ def addSummary(ds, recordCache, identifier, subNode, file):
     model = getModel(ds, 'summary', 'Summary', schema=[
         ModelProperty('title', 'Title', title=True), # list
         ModelProperty('hasResponsiblePrincipalInvestigator', 'Responsible Principal Investigator',
-            data_type=ModelPropertyEnumType(data_type=str, multi_select=True)),
-            # list of ORCID URLs, blackfynn user IDs, and, and Blackfynn contributor URLs
-            # TODO: make this a relationship?
+                      data_type=ModelPropertyEnumType(data_type=str, multi_select=True)),
+        # list of ORCID URLs, blackfynn user IDs, and, and Blackfynn contributor URLs
+        # TODO: make this a relationship?
         ModelProperty('isDescribedBy', 'Publication URL', data_type=ModelPropertyEnumType(
             data_type=str, multi_select=True)), # list (of urls)
         ModelProperty('description', 'Description', data_type=ModelPropertyEnumType(
             data_type=str, multi_select=True)), # list
-            # TODO: update dataset description using PUT /datasets/{id}/readme
+        # TODO: update dataset description using PUT /datasets/{id}/readme
         ModelProperty('collectionTitle', 'Collection'),
         ModelProperty('curationIndex', 'Curation index'), # number string
-        ModelProperty('hasAwardNumber', 'Award number'),
+     #   ModelProperty('hasAwardNumber', 'Award number'),
         ModelProperty('hasExperimentalModality', 'Experimental modality', data_type=ModelPropertyEnumType(
             data_type=str, multi_select=True)), # list
         ModelProperty('hasNumberOfContributors', 'Number of contributors'), # number string
@@ -742,17 +738,20 @@ def addSummary(ds, recordCache, identifier, subNode, file):
         ModelProperty('errorIndex', 'Error index'), # number string
         ModelProperty('label', 'Label'),
         ModelProperty('hasSizeInBytes', 'Size (bytes)'), # number string
+    ], linked=[
+        LinkedModelProperty('hasAwardNumber', ds.get_model('award'), 'Award number'),
     ])
+    hasAwardNumber = model.linked['hasAwardNumber']
 
-    def transform(subNode):
+    def transform(subNode, description):
         return {
-            'isDescribedBy': subNode.get('isDescribedBy'),
+            'isDescribedBy': description,
             'acknowledgements': subNode.get('acknowledgements'),
             'collectionTitle': subNode.get('collectionTitle'),
             'curationIndex': subNode.get('curationIndex'),
             'description': subNode.get('description'),
             'errorIndex': subNode.get('errorIndex'),
-            'hasAwardNumber': subNode['hasAwardNumber'].split('/')[1] if 'hasAwardNumber' in subNode else None,
+          #  'hasAwardNumber': subNode['hasAwardNumber'] if 'hasAwardNumber' in subNode else None,
             'hasExperimentalModality': subNode.get('hasExperimentalModality'),
             'hasNumberOfContributors': subNode.get('hasNumberOfContributors'),
             'hasNumberOfDirectories': subNode.get('hasNumberOfDirectories'),
@@ -765,9 +764,21 @@ def addSummary(ds, recordCache, identifier, subNode, file):
             'submissionIndex': subNode.get('submissionIndex'),
             'title': getFirst(subNode, 'title', default=subNode.get('label', '(no label)')),
         }
+    links = {}
 
     relations = {}
     # get "is about" relationships
+
+    if 'isDescribedBy' in subNode:
+        if isinstance(subNode.get('isDescribedBy'),list):
+            description = subNode.get('isDescribedBy')
+        else:
+            description = [subNode.get('isDescribedBy')]
+    else:
+        description = None
+
+    links['hasAwardNumber'] = subNode['hasAwardNumber'] if ('hasAwardNumber' in subNode and subNode['hasAwardNumber'] in recordCache['award']) else None
+
     regex = re.compile(r'\w+:\w+')
     for value in subNode.get('http://purl.obolibrary.org/obo/IAO_0000136', []):
         if regex.match(value):
@@ -781,11 +792,54 @@ def addSummary(ds, recordCache, identifier, subNode, file):
     for value in subNode.get('protocolEmploysTechnique', []):
         relations.setdefault('protocol-employs-technique', []).append(value)
 
-    file.append("Adding summary '{}' to dataset '{}'".format(transform(subNode), ds))
+    file.append("Adding summary '{}' to dataset '{}'".format(transform(subNode, description), ds))
     try:
-        updateRecord(ds, recordCache, model, identifier, transform(subNode), file, relationships=relations)
+        updateRecord(ds, recordCache, model, identifier, transform(subNode, description), file, relationships=relations, links=links)
     except Exception as e:
         log.error("Failed to add summary to dataset '{}'".format(ds))
+
+
+def addAwards(ds, recordCache, identifier, subNode, file):
+    log.info("Adding awards...")
+
+    model = getModel(ds, 'award', 'Award', schema=[
+        ModelProperty('award_id', 'Award ID', title=True),
+        ModelProperty('title', 'Title'),
+        ModelProperty('description', 'Description'),
+        ModelProperty('principal_investigator', 'Principal Investigator'),
+
+    ])
+
+    def transform(awardId):
+        r = requests.get(url = u'https://api.federalreporter.nih.gov/v1/projects/search?query=projectNumber:*{}*'.format(awardId))
+        try:
+            data = r.json()
+        except Exception as e:
+            return {
+                'award_id': awardId,
+                'title': None,
+                'description': None,
+                'principal_investigator': None,
+            }
+        if data['totalCount'] > 0:
+            return {
+                'award_id': awardId,
+                'title': data['items'][0]['title'],
+                'description': data['items'][0]['abstract'],
+                'principal_investigator': data['items'][0]['contactPi'],
+
+            }
+        else:
+            return {
+                'award_id': awardId,
+                'title': None,
+                'description': None,
+                'principal_investigator': None,
+            }
+
+    for awardId, _ in subNode.items():
+        file.append("Adding award '{}' to dataset '{}'".format(transform(awardId), ds))
+        updateRecord(ds, recordCache, model, awardId, transform(awardId), file)
 
 #%% [markdown]
 ### Main body
@@ -940,6 +994,15 @@ def updateAll(reset=False):
             f.write("%s\n" % item)
         f.close()
     return failedDatasets
+
+def update_sparc_dataset():
+    if not authorized(SPARC_DATASET_ID):
+        log.warning('Skipping update: "UNAUTHORIZED: {}"'.format(dsId))
+        return()
+    sparc_ds = getDataset(SPARC_DATASET_ID)
+    model = sparc_ds.get_model('Update_run')
+    model.create_record({'name':'TTL Update', 'status': DT.now()})
+
 
 bf = bfClient()
 db = getDB()
