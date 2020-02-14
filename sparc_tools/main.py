@@ -39,10 +39,8 @@ def main(event = None, context = None):
     elif len(sys.argv) > 1 and sys.argv[1] == "fullJsonOnly":
         log.info('New metadata version: {} old version: {}'.format(latestVersion, lastUpdated))
         metadata_versions.getTTL(latestVersion, TTL_FILE_NEW)
-
         log.info('Metadata file downloaded.')
         new_metadata.buildJson('full')
-
         log.info('json File build')
     elif len(sys.argv) > 1 and sys.argv[1] == "diffJsonOnly":
         log.info('New metadata version: {} old version: {}'.format(latestVersion, lastUpdated))

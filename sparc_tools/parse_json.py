@@ -535,9 +535,13 @@ def addTerms(ds, recordCache, subNode, file):
             'iri': term.get('iri'),
         }
 
+    tags = []
     for curie, term in subNode.items():
         file.append("Adding term '{}' to dataset '{}'".format(transform(term), ds))
         updateRecord(ds, recordCache, model, curie, transform(term), file)
+        tags.append(getFirst(term, 'labels'))
+    ds.tags=list(set(tags+ds.tags))
+    ds.update()
 
 def addResearchers(ds, recordCache, subNode, file):
     log.info("Adding researchers...")
@@ -683,8 +687,8 @@ def addSamples(ds, recordCache, subNode, file):
             'providerNote': subNode.get('providerNote')
         }
 
-    if subNode:
-        pkgList = get_packages(ds)
+    #if subNode:
+     #   pkgList = get_packages(ds)
 
     regex = re.compile(r'.*/subjects/(.+)')
     for sampleId, subNode in subNode.items():
@@ -700,12 +704,12 @@ def addSamples(ds, recordCache, subNode, file):
         file.append("Adding sample '{}' to dataset '{}'".format(transform(subNode), ds))
         rec = updateRecord(ds, recordCache, model, sampleId, transform(subNode), file, links)
 
-        if subNode.get('hasDigitalArtifactThatIsAboutIt') is  not None:
-            for fullFileName in subNode.get('hasDigitalArtifactThatIsAboutIt'):
-                filename, file_extension = os.path.splitext(fullFileName)
-                pkg = contains(pkgList, lambda x: x.name == filename)
-                if pkg:
-                    pkg.relate_to(rec)
+      #  if subNode.get('hasDigitalArtifactThatIsAboutIt') is  not None:
+      #      for fullFileName in subNode.get('hasDigitalArtifactThatIsAboutIt'):
+      #          filename, file_extension = os.path.splitext(fullFileName)
+      #          pkg = contains(pkgList, lambda x: x.name == filename)
+      #          if pkg:
+      #              pkg.relate_to(rec)
 
 
 def addSummary(ds, recordCache, identifier, subNode, file):
@@ -996,11 +1000,8 @@ def updateAll(reset=False):
     return failedDatasets
 
 def update_sparc_dataset():
-    if not authorized(SPARC_DATASET_ID):
-        log.warning('Skipping update: "UNAUTHORIZED: {}"'.format(dsId))
-        return()
     sparc_ds = getDataset(SPARC_DATASET_ID)
-    model = sparc_ds.get_model('Update_run')
+    model = sparc_ds.get_model('Update_Run')
     model.create_record({'name':'TTL Update', 'status': DT.now()})
 
 
