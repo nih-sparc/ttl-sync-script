@@ -687,9 +687,6 @@ def addSamples(ds, recordCache, subNode, file):
             'providerNote': subNode.get('providerNote')
         }
 
-    #if subNode:
-     #   pkgList = get_packages(ds)
-
     regex = re.compile(r'.*/subjects/(.+)')
     for sampleId, subNode in subNode.items():
         # get linked values:
@@ -704,12 +701,13 @@ def addSamples(ds, recordCache, subNode, file):
         file.append("Adding sample '{}' to dataset '{}'".format(transform(subNode), ds))
         rec = updateRecord(ds, recordCache, model, sampleId, transform(subNode), file, links)
 
-      #  if subNode.get('hasDigitalArtifactThatIsAboutIt') is  not None:
-      #      for fullFileName in subNode.get('hasDigitalArtifactThatIsAboutIt'):
-      #          filename, file_extension = os.path.splitext(fullFileName)
-      #          pkg = contains(pkgList, lambda x: x.name == filename)
-      #          if pkg:
-      #              pkg.relate_to(rec)
+        if subNode.get('hasDigitalArtifactThatIsAboutIt') is not None:
+            for fullFileName in subNode.get('hasDigitalArtifactThatIsAboutIt'):
+                filename, file_extension = os.path.splitext(fullFileName)
+                pkgs = ds.get_packages_by_filename(filename)
+                if len(pkgs) > 0:
+                    for pkg in pkgs:
+                        pkg.relate_to(rec)
 
 
 def addSummary(ds, recordCache, identifier, subNode, file):
@@ -747,39 +745,64 @@ def addSummary(ds, recordCache, identifier, subNode, file):
     ])
     hasAwardNumber = model.linked['hasAwardNumber']
 
-    def transform(subNode, description):
+    def transform(subNode, description, isDescribedBy, hasExperimentalModality, hasResponsiblePrincipalInvestigator):
         return {
-            'isDescribedBy': description,
+            'isDescribedBy': isDescribedBy,
             'acknowledgements': subNode.get('acknowledgements'),
             'collectionTitle': subNode.get('collectionTitle'),
             'curationIndex': subNode.get('curationIndex'),
-            'description': subNode.get('description'),
+            'description': description,
             'errorIndex': subNode.get('errorIndex'),
           #  'hasAwardNumber': subNode['hasAwardNumber'] if 'hasAwardNumber' in subNode else None,
-            'hasExperimentalModality': subNode.get('hasExperimentalModality'),
+            'hasExperimentalModality': hasExperimentalModality,
             'hasNumberOfContributors': subNode.get('hasNumberOfContributors'),
             'hasNumberOfDirectories': subNode.get('hasNumberOfDirectories'),
             'hasNumberOfFiles': subNode.get('hasNumberOfFiles'),
             'hasNumberOfSamples': subNode.get('hasNumberOfSamples'),
             'hasNumberOfSubjects': subNode.get('hasNumberOfSubjects'),
-            'hasResponsiblePrincipalInvestigator': subNode.get('hasResponsiblePrincipalInvestigator'),
+            'hasResponsiblePrincipalInvestigator': hasResponsiblePrincipalInvestigator,
             'hasSizeInBytes': subNode.get('hasSizeInBytes'),
             'label': subNode.get('label'),
             'submissionIndex': subNode.get('submissionIndex'),
             'title': getFirst(subNode, 'title', default=subNode.get('label', '(no label)')),
         }
+
+    if 'hasResponsiblePrincipalInvestigator' in subNode:
+        if isinstance(subNode.get('hasResponsiblePrincipalInvestigator'), list):
+            hasResponsiblePrincipalInvestigator = subNode.get('hasResponsiblePrincipalInvestigator')
+        else:
+            hasResponsiblePrincipalInvestigator = [subNode.get('hasResponsiblePrincipalInvestigator')]
+    else:
+        hasResponsiblePrincipalInvestigator = None
+
+    if 'hasExperimentalModality' in subNode:
+        if isinstance(subNode.get('hasExperimentalModality'), list):
+            hasExperimentalModality = subNode.get('hasExperimentalModality')
+        else:
+            hasExperimentalModality = [subNode.get('hasExperimentalModality')]
+    else:
+        hasExperimentalModality = None
+
+    if 'isDescribedBy' in subNode:
+        if isinstance(subNode.get('isDescribedBy'), list):
+            isDescribedBy = subNode.get('isDescribedBy')
+        else:
+            isDescribedBy = [subNode.get('isDescribedBy')]
+    else:
+        isDescribedBy = None
+
+    if 'description' in subNode:
+        if isinstance(subNode.get('description'), list):
+            description = subNode.get('description')
+        else:
+            description = [subNode.get('description')]
+    else:
+        description = None
+
     links = {}
 
     relations = {}
     # get "is about" relationships
-
-    if 'isDescribedBy' in subNode:
-        if isinstance(subNode.get('isDescribedBy'),list):
-            description = subNode.get('isDescribedBy')
-        else:
-            description = [subNode.get('isDescribedBy')]
-    else:
-        description = None
 
     links['hasAwardNumber'] = subNode['hasAwardNumber'] if ('hasAwardNumber' in subNode and subNode['hasAwardNumber'] in recordCache['award']) else None
 
@@ -796,9 +819,9 @@ def addSummary(ds, recordCache, identifier, subNode, file):
     for value in subNode.get('protocolEmploysTechnique', []):
         relations.setdefault('protocol-employs-technique', []).append(value)
 
-    file.append("Adding summary '{}' to dataset '{}'".format(transform(subNode, description), ds))
+    file.append("Adding summary '{}' to dataset '{}'".format(transform(subNode, description, isDescribedBy, hasExperimentalModality, hasResponsiblePrincipalInvestigator), ds))
     try:
-        updateRecord(ds, recordCache, model, identifier, transform(subNode, description), file, relationships=relations, links=links)
+        updateRecord(ds, recordCache, model, identifier, transform(subNode, description, isDescribedBy, hasExperimentalModality, hasResponsiblePrincipalInvestigator), file, relationships=relations, links=links)
     except Exception as e:
         log.error("Failed to add summary to dataset '{}'".format(ds))
 
