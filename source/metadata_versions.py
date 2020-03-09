@@ -10,6 +10,11 @@ from requests.compat import quote, unquote
 from base import SSMClient
 from config import Configs
 
+from base import (
+    TTL_FILE_NEW,
+    TTL_FILE_OLD
+)
+
 BASE_URL = 'https://cassava.ucsd.edu/sparc/archive/exports/'
 cfg = Configs()
 ssm = SSMClient()
@@ -33,3 +38,7 @@ def getTTL(version, filename):
         r.raise_for_status()
         with open(filename, 'wb') as f:
             copyfileobj(r.raw, f)
+
+def getLatestTTLVersion():
+    version = latestVersion()
+    return getTTL(version, TTL_FILE_NEW)

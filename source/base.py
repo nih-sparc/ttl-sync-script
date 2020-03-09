@@ -11,6 +11,7 @@ from config import Configs
 
 cfg = Configs()
 log = logging.getLogger(__name__)
+log.setLevel('INFO')
 
 ### Settings ###
 JSON_METADATA_EXPIRED = '/tmp/expired_metadata.json'
@@ -25,16 +26,12 @@ SPARC_DATASET_ID = 'N:dataset:bed6add3-09c0-4834-b129-c3b406240f3d'
 SKIP_LIST = []
 
 # List of properties which have multiple values:
-arrayProps = (
+arrayProps = [
     'http://purl.obolibrary.org/obo/IAO_0000136',
-    'hasResponsiblePrincialInvestigator',
     'hasExperimentalModality',
-    'description',
-    'middleName',
     'hasAffiliation',
     'protocols',
     'involvesAnatomicalRegion',
-    'title',
     'spatialLocationOfModulator',
     'hasAssignedGroup',
     'IsDescribedBy',
@@ -45,7 +42,8 @@ arrayProps = (
     'TODO',
     'hasDigitalArtifactThatIsAboutItWithHash',
     'hasDigitalArtifactThatIsAboutIt',
-    'protocolEmploysTechnique')
+    'protocolEmploysTechnique',
+    'isAboutParticipant']
 
 ### AWS ###
 class SSMClient():
@@ -82,7 +80,8 @@ def iriLookup(iri, iriCache=None):
         'https://app.blackfynn.io',
         'https://orcid.org',
         'https://doi.org',
-        'https://ror.org')
+        'https://ror.org',
+        'http://dx.doi.org/')
 
     if iriCache is None:
         iriCache = {}
@@ -101,6 +100,7 @@ def iriLookup(iri, iriCache=None):
     #         return name
     #     else:
     #         raise Exception('iriLookup HTTP Error: %d %s\n url= %s' % (r.status_code, r.reason, url))
+    
     # use SciCrunch API
     apiKey = '8a72SmzPaTtrail8ySNWgtSTuJgMyAtZ'
     url = 'https://scicrunch.org/api/1/sparc-scigraph/vocabulary/id/{}?key={}'.format(
@@ -125,7 +125,7 @@ def stripIri(iri):
 
         'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
         'http://www.w3.org/2000/01/rdf-schema#',
-        'http://purl.org/dc/elements/1.1/',
+        'http://purl.org/dc/elements/1.1/'
         )
 
     for s in strips:

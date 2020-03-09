@@ -31,10 +31,16 @@ class Configs(object):
     table_sort_key = "recordId"
 
     # Blackfynn client configurations
+    working_directory = None
+    session = None
+    ssm = None
+    ssm_path = None
+
     if environment_name == "test":
+
         blackfynn_api_token = os.environ.get("BLACKFYNN_API_TOKEN")
         blackfynn_api_secret = os.environ.get("BLACKFYNN_API_SECRET")
-        blackfynn_host="https://dev.blackfynn.io/"
+        blackfynn_host="https://api.blackfynn.net"
         last_updated = None
         working_directory = os.getcwd()
 
@@ -63,7 +69,7 @@ class Configs(object):
     ttl_file_new = '{}/curation-export-new.ttl'.format(working_directory)
 
 class StructLog(object):
-    def rewrite_event_to_message(logger, name, event_dict):
+    def rewrite_event_to_message(self, name, event_dict):
         """
         Rewrite the default structlog `event` to a `message`.
         """
@@ -72,7 +78,7 @@ class StructLog(object):
             event_dict["message"] = event
         return event_dict
 
-    def add_log_level(logger, name, event_dict):
+    def add_log_level(self, name, event_dict):
         event_dict["log_level"] = name.upper()
         return event_dict
 

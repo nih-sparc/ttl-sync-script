@@ -1,0 +1,16 @@
+from setuptools import setup
+
+setup(
+    name='ttl_update',
+    version='0.1',
+    py_modules=['sparc_tools','sparc_tools/base','ttl_update_cli'],
+    install_requires=[
+        'Click','Blackfynn','beautifulsoup4',
+        'boto3','botocore','configparser','rdflib',
+        'requests','structlog'
+    ],
+    entry_points='''
+        [console_scripts]
+        ttl_update=ttl_update_cli:cli
+    ''',
+)
