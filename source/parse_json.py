@@ -15,124 +15,37 @@ import re
 import sys
 import os
 import requests
-
-from blackfynn import Blackfynn, ModelProperty, LinkedModelProperty
-from blackfynn.base import UnauthorizedException
 from blackfynn.models import ModelPropertyEnumType, BaseCollection
-import boto3
-from boto3.dynamodb.conditions import Key
-#from moto import mock_dynamodb2
-from requests.exceptions import HTTPError
+from blackfynn import Blackfynn, ModelProperty, LinkedModelProperty
+
 from time import time
+from bf_io import (
+    authorized,
+    getCreateDataset,
+    clearDataset,
+    getModel,
+    BlackfynnException,
+    update_sparc_dashboard
+)
 
 from base import (
     JSON_METADATA_EXPIRED,
     JSON_METADATA_FULL,
     JSON_METADATA_NEW,
-    SKIP_LIST,
-    INSTRUCTION_FILE,
     SPARC_DATASET_ID,
-    SSMClient
+    SSMClient,
+    MODEL_NAMES
 )
-from config import Configs
 from pprint import pprint
 
-MODEL_NAMES = ('protocol', 'researcher', 'sample', 'subject', 'summary', 'term', 'award')
 logging.basicConfig(format="%(asctime);s%(filename)s:%(lineno)d:\t%(message)s")
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
 
-cfg = Configs()
-ssm = SSMClient()
 #%% [markdown]
 ### Set these variables before running
 #%%
 # (optional) List of IDs of datasets to update:
 DATASETS_LIST = []
-
-# (optional) Set a test dataset to update instead of the real one.
-# Otherwise, set to None
-#dsTest = Blackfynn().get('My test dataset')
-dsTest = None
-
-#%% [markdown]
-### Helper functions
-#%%
-### Blackfynn platform I/O:
-class BlackfynnException(Exception):
-    'Represents Exceptions raised by the API'
-    pass
-
-def bfClient():
-    return Blackfynn(api_token=cfg.blackfynn_api_token, api_secret=cfg.blackfynn_api_secret, host=cfg.blackfynn_host)
-
-def authorized(dsId):
-    '''check if user is authorized as a manager'''
-    api = bf._api.datasets
-    try:
-        role = api._get(api._uri('/{dsId}/role', dsId=dsId)).get('role')
-    except UnauthorizedException:
-        return False
-    except:
-        return False
-    return role == 'manager'
-
-def getDataset(dsId):
-    return bf.get_dataset(dsId) if dsTest is None else dsTest
-
-def clearDataset(dataset):
-    '''
-    DANGER! Deletes all records of type:
-    - protocol
-    - researcher
-    - sample
-    - subject
-    - summary
-    - term
-    '''
-    try:
-        models = dataset.models().values()
-        for m in models:
-            if m.type not in MODEL_NAMES or m.count == 0:
-                continue
-            recs = m.get_all(limit=m.count)
-            m.delete_records(*recs)
-    except:
-        log.info("Error clearing dataset '{}'".format(dataset.name))
-    log.info("Cleared dataset '{}'".format(dataset.name))
-
-def getModel(ds, name, displayName, schema=None, linked=None):
-    '''create a model if it doesn't exist,
-    or retrieve it and update its schema properties'''
-    if schema is None:
-        schema = []
-    if linked is None:
-        linked = []
-    try:
-        model = ds.get_model(name)
-        try:
-            for s in schema:
-                s.id = model.schema[s.name].id
-            newLinks = [l for l in linked if l.name not in model.linked]
-            model.schema = {s.name: s for s in schema}
-            model.update()
-            if newLinks:
-                try:
-                    model.add_linked_properties(newLinks)
-                except Exception as e:
-                    log.info("Error adding linked properties '{}' to dataset '{}': {}".format(newLinks, ds.name, e))
-        except Exception as e:
-            log.info("Error updating model '{}' with schema '{}' to dataset '{}': {}".format(model, schema, ds.name, e))
-    except HTTPError:
-        #log.info("model '{}' not found in dataset '{}': trying to create it".format(name, ds.name))
-        try:
-            model = ds.create_model(name, displayName, schema=schema)
-            if linked:
-                model.add_linked_properties(linked)
-        except Exception as e:
-            log.info("Error creating model '{}' with schema '{}' in dataset '{}': {}".format(model, schema, ds.name, e))
-    return model
-
 
 ### Parsing JSON data:
 def getJson(_type):
@@ -164,95 +77,7 @@ def getFirst(node, name, default=None):
     except (KeyError, IndexError):
         return default
 
-
-### Database I/O
-#@mock_dynamodb2
-def getDB():
-    return boto3.resource('dynamodb', region_name=cfg.aws_region)
-
-#@mock_dynamodb2
-def getTable():
-    if cfg.environment_name is not "test":
-        return db.Table(cfg.table_id)
-    return db.create_table(
-        TableName=cfg.table_id,
-        KeySchema=[
-            {'AttributeName': cfg.table_partition_key, 'KeyType': "HASH"},
-            {'AttributeName': cfg.table_sort_key, 'KeyType': "RANGE"}
-        ],
-        AttributeDefinitions=[
-            {'AttributeName': cfg.table_partition_key, 'AttributeType': 'S'},
-            {'AttributeName': cfg.table_sort_key, 'AttributeType': 'S'}
-        ],
-        BillingMode="PROVISIONED",
-        ProvisionedThroughput={
-            'ReadCapacityUnits': 123,
-            'WriteCapacityUnits': 123
-        }
-    )
-
-#@mock_dynamodb2
-def buildCache(dsId):
-    '''
-    Get records cache from the database,
-    return a dictionary of {model name: {identifier: record ID}}
-    '''
-    table = getTable()
-    res = table.query(KeyConditionExpression=Key(cfg.table_partition_key).eq(dsId))
-    cache = {m: {} for m in MODEL_NAMES}
-    for item in res['Items']:
-        cache[item['model']][item['identifier']] = item['recordId']
-    log.debug('Retrieved {} database records for {}'.format(res['Count'], dsId))
-    return cache
-
-#@mock_dynamodb2
-def writeCache(dsId, recordCache):
-    'Write mappings in recordCache to the db'
-    newEntries = [{
-        'datasetId': dsId,
-        'model': model,
-        'identifier': k,
-        'id': v}
-        for model, records in recordCache.items() for k, v in records.items()]
-
-    table = getTable()
-    oldItems = table.query(KeyConditionExpression=Key(cfg.table_partition_key).eq(dsId))
-    with table.batch_writer() as batch:
-        for item in oldItems['Items']:
-            try:
-                batch.delete_item(Key={cfg.table_partition_key: dsId, cfg.table_sort_key: item['recordId']})
-            except KeyError as e:
-                log.error('Key Error File "/var/task/parse_json.py", line 212, in writeCache')
-            except Exception as e:
-                print("an exception occured")
-                print(e)
-                sys.exit()
-
-    with table.batch_writer() as batch:
-        for e in newEntries:
-            try:
-                new_item = {
-                    cfg.table_partition_key: e['datasetId'],
-                    cfg.table_sort_key: e['id'],
-                    'model': e['model'],
-                    'identifier': e['identifier']
-                }
-                batch.put_item(Item=new_item)
-            except KeyError as k:
-                log.error('Key Error File "/var/task/parse_json.py", line 221, in writeCache')
-                print(k)
-            except Exception as e:
-                print("an exception occured")
-                print(e)
-                sys.exit()
-
-    if newEntries:
-        log.debug('Inserted {} records'.format(len(newEntries)))
-    else:
-        log.info('Cleared all database entries for {}'.format(dsId))
-
-
-### Removing data:
+### Removing data: Delete specific records from dataset
 def deleteData(ds, models, recordCache, node):
     '''
     Delete records and/or record properties from a dataset
@@ -297,8 +122,7 @@ def removeRecords(model, recordCache, *recordNames):
             recIds.append(recId)
     try:
         print("deleting '{}' record {}".format( model.type, str(recIds)))
-        if not cfg.dry_run:
-            model.delete_records(*recIds) # will print error message if a record doesn't exist
+        model.delete_records(*recIds) # will print error message if a record doesn't exist
     except Exception as e:
         log.error("Failed to delete '{}' record(s): {}".format( model.type, str(recIds)))
         raise BlackfynnException(e)
@@ -330,8 +154,7 @@ def removeProperties(ds, record, recordCache, values, arrayValues):
             record._set_value(v, None)
         try:
             print("deleting property '{}' from record {}".format(v, record))
-            if not cfg.dry_run:
-                record.update()
+            record.update()
         except Exception as e:
             log.error("Failed to remove property '{}' from record {}".format(v, record))
             raise BlackfynnException(e)
@@ -359,12 +182,12 @@ def removeProperties(ds, record, recordCache, values, arrayValues):
                 array = None
             try:
                 print("editing property '{}' from record {}".format(prop, record))
-                if not cfg.dry_run:
-                    record.set(prop, array)
+                record.set(prop, array)
             except Exception as e:
                 log.error("Failed to edit property '{}' of record '{}'".format(prop, record))
                 raise BlackfynnException(e)
 
+### Get array of all packages, including nested packages
 def get_packages(ds):
     packages = []
     for item in ds.items:
@@ -374,20 +197,24 @@ def get_packages(ds):
     return packages
 
 ### Adding data:
-def addData(ds, dsId, recordCache, node, file):
+def addData(bf, ds, dsId, recordCache, node):
     '''
     Add and/or update records in a dataset
     '''
 
-    addProtocols(ds, recordCache, node['Protocols'], file)
-    addTerms(ds, recordCache, node['Terms'], file)
-    addResearchers(ds, recordCache, node['Researcher'], file)
-    addSubjects(ds, recordCache, node['Subjects'], file)
-    addSamples(ds, recordCache, node['Samples'], file)
-    addAwards(ds, recordCache, dsId, node['Awards'], file)
-    addSummary(ds, recordCache, dsId, node['Resource'], file)
+    # Adding all records without setting linked properties and relationships
+    addProtocols(bf, ds, recordCache, node['Protocols'])
+    addTerms(bf,ds, recordCache, node['Terms'])
+    addResearchers(bf,ds, recordCache, node['Researcher'])
+    subject_links = addSubjects(bf,ds, recordCache, node['Subjects'])
+    addSamples(bf,ds, recordCache, node['Samples'])
+    addAwards(bf,ds, recordCache, dsId, node['Awards'])
+    addSummary(bf,ds, recordCache, dsId, node['Resource'])
 
-def updateRecord(ds, recordCache, model, identifier, values, file, links=None, relationships=None):
+    # Adding linked properties and relationships
+    # addLinks(ds, recordCache, subject_links[0],  )
+
+def updateRecord(ds, recordCache, model, identifier, values, links=None, relationships=None):
     '''
     Create or update a record with the given properties/relationships
     model: Model object
@@ -401,7 +228,7 @@ def updateRecord(ds, recordCache, model, identifier, values, file, links=None, r
     except KeyError:
         try:
             rec = model.create_record(values)
-            log.debug('Created new record: {}'.format(rec))
+            log.info('Created new record: {}'.format(rec))
             recordCache[model.type][identifier] = rec.id
         except Exception as e:
             log.error("Failed to create record with values {}".format(values))
@@ -414,19 +241,18 @@ def updateRecord(ds, recordCache, model, identifier, values, file, links=None, r
                 values[prop] = value
             elif isinstance(value, list):
                 values[prop] = list(set(values[prop]).union(set(value)))
-            file.append("adding property value '{}'='{}' to record {}".format(prop, value, rec))
         try:
-            if not cfg.dry_run:
-                rec._set_values(values)
-                rec.update()
+            rec._set_values(values)
+            log.info('updating record')
+            rec.update()
         except Exception as e:
             log.error("Failed to update values of record {}".format(rec))
             raise BlackfynnException(e)
 
-    if links:
-        addLinks(ds, recordCache, model, rec, links, file)
-    if relationships:
-        addRelationships(ds, recordCache, model, rec, relationships, file)
+    # if links:
+    #     addLinks(ds, recordCache, model, rec, links)
+    # if relationships:
+    #     addRelationships(ds, recordCache, model, rec, relationships)
     return rec
 
 def addLinks(ds, recordCache, model, record, links, file):
@@ -454,8 +280,7 @@ def addLinks(ds, recordCache, model, record, links, file):
             continue
         try:
             file.append("adding linked value '{}'='{}' to record {}".format(name, value, record))
-            if not cfg.dry_run:
-                record.add_linked_value(linkedRecId, linkedProp)
+            record.add_linked_value(linkedRecId, linkedProp)
         except Exception as e:
             log.error("Failed to add linked value '{}'='{}' to record {} with error '{}'".format(name, value, record, str(e)))
             raise BlackfynnException(e)
@@ -481,8 +306,7 @@ def addRelationships(ds, recordCache, model, record, relationships, file):
                     targets.append(target)
             try:
                 file.append("adding '{}' relationship to record '{}'".format(rt.type, record))
-                if not cfg.dry_run:
-                    record.relate_to(targets, relationship_type=rt)
+                record.relate_to(targets, relationship_type=rt)
             except Exception as e:
                 log.error("Failed to add '{}' relationship to record '{}'".format(rt.type, record))
                 raise BlackfynnException(e)
@@ -490,25 +314,27 @@ def addRelationships(ds, recordCache, model, record, relationships, file):
 #%% [markdown]
 ### Functions to update records of each model type
 #%%
-def addProtocols(ds, recordCache, subNode, file):
+def addProtocols(bf, ds, recordCache, subNode):
     log.info("Adding protocols...")
-    model = getModel(ds, 'protocol', 'Protocol', schema=[
+    model = getModel(bf, ds, 'protocol', 'Protocol', schema=[
         ModelProperty('label', 'Name', title=True),
-            ModelProperty('url', 'URL'),
-            ModelProperty('protocolHasNumberOfSteps', 'Number of Steps'), # is this necessary?
-            ModelProperty('hasNumberOfProtcurAnnotations', 'Number of Protcur Annotations') # is this necessary?
-        ])
+        ModelProperty('url', 'URL'),
+        ModelProperty('protocolHasNumberOfSteps', 'Number of Steps'), 
+        ModelProperty('hasNumberOfProtcurAnnotations', 'Number of Protcur Annotations')
+    ])
+    record_list = []
     for url, protocol in subNode.items():
         protocol['url'] = url
-        prot = {k: protocol.get(k) for k in ('label', 'url', 'protocolHasNumberOfSteps', 'hasNumberOfProtcurAnnotations')}
-        file.append("Adding protocols '{}' to dataset '{}'".format(prot, ds))
+        record_list.append({k: protocol.get(k) for k in ('label', 'url', 'protocolHasNumberOfSteps', 'hasNumberOfProtcurAnnotations')})
+        # updateRecord(ds, recordCache, model, url, prot)
+    
+    log.info('Creating {} new records'.format(len(record_list)))
+    if len(record_list):
+        recs = model.create_records(record_list)
 
-        if not cfg.dry_run:
-                updateRecord(ds, recordCache, model, url, prot, file)
-
-def addTerms(ds, recordCache, subNode, file):
+def addTerms(bf, ds, recordCache, subNode):
     log.info("Adding terms...")
-    model = getModel(ds, 'term', 'Term', schema=[
+    model = getModel(bf, ds, 'term', 'Term', schema=[
         ModelProperty('label', 'Label', title=True), # is a list
             ModelProperty('curie', 'CURIE'),
             ModelProperty('definitions', 'Definition'), # is a list
@@ -536,21 +362,26 @@ def addTerms(ds, recordCache, subNode, file):
         }
 
     tags = []
+    record_list = []
     for curie, term in subNode.items():
-        file.append("Adding term '{}' to dataset '{}'".format(transform(term), ds))
-        updateRecord(ds, recordCache, model, curie, transform(term), file)
+        record_list.append(transform(term))
+        # updateRecord(ds, recordCache, model, curie, transform(term))
         tags.append(getFirst(term, 'labels'))
+
+    log.info('Creating {} new records'.format(len(record_list)))
+    if len(record_list):
+        recs = model.create_records(record_list)
+
     ds.tags=list(set(tags+ds.tags))
     ds.update()
 
-def addResearchers(ds, recordCache, subNode, file):
+def addResearchers(bf,ds, recordCache, subNode):
     log.info("Adding researchers...")
 
-    model = getModel(ds, 'researcher', 'Researcher', schema=[
+    model = getModel(bf, ds, 'researcher', 'Researcher', schema=[
             ModelProperty('lastName', 'Last name', title=True),
             ModelProperty('firstName', 'First name'),
-            ModelProperty('middleName', 'Middle name', data_type=ModelPropertyEnumType(
-                data_type=str, multi_select=True)), # list
+            ModelProperty('middleName', 'Middle name'),
             ModelProperty('hasAffiliation', 'Affiliation', data_type=ModelPropertyEnumType(
                 data_type=str, multi_select=True)), # list
             ModelProperty('hasRole', 'Role', data_type=ModelPropertyEnumType(
@@ -568,14 +399,20 @@ def addResearchers(ds, recordCache, subNode, file):
             'hasORCIDId': subNode.get('hasORCIDId')
         }
 
+    record_list = []
     for userId, researcher in subNode.items():
-        file.append("Adding researcher '{}' to dataset '{}'".format(transform(researcher), ds))
-        updateRecord(ds, recordCache, model, userId, transform(researcher), file)
+        record_list.append(transform(researcher))
+        # updateRecord(ds, recordCache, model, userId, transform(researcher))
+    
+    log.info('Creating {} new records'.format(len(record_list)))
+    if len(record_list):
+        recs = model.create_records(record_list)    
 
-def addSubjects(ds, recordCache, subNode, file):
+
+def addSubjects(bf,ds, recordCache, subNode):
     log.info("Adding subjects...")
     termModel = ds.get_model('term')
-    model = getModel(ds, 'subject', 'Subject',
+    model = getModel(bf, ds, 'subject', 'Subject',
         schema=[
             ModelProperty('localId', 'Subject ID', title=True),
             ModelProperty('animalSubjectHasWeight', 'Animal weight'), # unit+value
@@ -629,6 +466,7 @@ def addSubjects(ds, recordCache, subNode, file):
             vals['protocolExecutionDate'] = None
         return vals
 
+    record_list = []
     for subjId, subjNode in subNode.items():
         links = {}
         for prop in linkedProperties:
@@ -639,11 +477,17 @@ def addSubjects(ds, recordCache, subNode, file):
                 else:
                     value = subjNode[prop.name]
                 links[prop.name] = value
-        file.append("Adding subject '{}' to dataset '{}'".format( subjId, ds))
         try:
-            updateRecord(ds, recordCache, model, subjId, transform(subjNode, subjId), file, links)
+            record_list.append(transform(subjNode, subjId))
+            # updateRecord(ds, recordCache, model, subjId, transform(subjNode, subjId))
         except Exception as e:
             log.error("Addition of subject '{}' failed because of {}".format(subjId, e))
+        
+        log.info('Creating {} new records'.format(len(record_list)))
+        if len(record_list):
+            recs = model.create_records(record_list)
+
+        return model, links
 
 def contains(list, filter):
     for x in list:
@@ -651,9 +495,9 @@ def contains(list, filter):
             return x
     return False
 
-def addSamples(ds, recordCache, subNode, file):
+def addSamples(bf, ds, recordCache, subNode):
     log.info("Adding samples...")
-    model = getModel(ds, 'sample', 'Sample',
+    model = getModel(bf, ds, 'sample', 'Sample',
         schema=[
             ModelProperty('localId', 'ID', title=True),
             ModelProperty('label', 'Label'),
@@ -688,6 +532,7 @@ def addSamples(ds, recordCache, subNode, file):
         }
 
     regex = re.compile(r'.*/subjects/(.+)')
+    record_list = []
     for sampleId, subNode in subNode.items():
         # get linked values:
         links = {}
@@ -698,23 +543,26 @@ def addSamples(ds, recordCache, subNode, file):
             if identifier in recordCache['subject']:
                 links['wasDerivedFromSubject'] = identifier
 
-        file.append("Adding sample '{}' to dataset '{}'".format(transform(subNode), ds))
-        rec = updateRecord(ds, recordCache, model, sampleId, transform(subNode), file, links)
+        record_list.append(transform(subNode))
+        # rec = updateRecord(ds, recordCache, model, sampleId, transform(subNode), links)
 
-        if subNode.get('hasDigitalArtifactThatIsAboutIt') is not None:
-            for fullFileName in subNode.get('hasDigitalArtifactThatIsAboutIt'):
-                filename, file_extension = os.path.splitext(fullFileName)
-                pkgs = ds.get_packages_by_filename(filename)
-                if len(pkgs) > 0:
-                    for pkg in pkgs:
-                        pkg.relate_to(rec)
+        # if subNode.get('hasDigitalArtifactThatIsAboutIt') is not None:
+        #     for fullFileName in subNode.get('hasDigitalArtifactThatIsAboutIt'):
+        #         filename, file_extension = os.path.splitext(fullFileName)
+        #         pkgs = ds.get_packages_by_filename(filename)
+        #         if len(pkgs) > 0:
+        #             for pkg in pkgs:
+        #                 pkg.relate_to(rec)
+    
+    log.info('Creating {} new records'.format(len(record_list)))
+    if len(record_list):
+        recs = model.create_records(record_list)    
 
-
-def addSummary(ds, recordCache, identifier, subNode, file):
+def addSummary(bf, ds, recordCache, identifier, subNode):
     log.info("Adding summary...")
 
     termModel = ds.get_model('term')
-    model = getModel(ds, 'summary', 'Summary', schema=[
+    model = getModel(bf, ds, 'summary', 'Summary', schema=[
         ModelProperty('title', 'Title', title=True), # list
         ModelProperty('hasResponsiblePrincipalInvestigator', 'Responsible Principal Investigator',
                       data_type=ModelPropertyEnumType(data_type=str, multi_select=True)),
@@ -819,17 +667,15 @@ def addSummary(ds, recordCache, identifier, subNode, file):
     for value in subNode.get('protocolEmploysTechnique', []):
         relations.setdefault('protocol-employs-technique', []).append(value)
 
-    file.append("Adding summary '{}' to dataset '{}'".format(transform(subNode, description, isDescribedBy, hasExperimentalModality, hasResponsiblePrincipalInvestigator), ds))
     try:
-        updateRecord(ds, recordCache, model, identifier, transform(subNode, description, isDescribedBy, hasExperimentalModality, hasResponsiblePrincipalInvestigator), file, relationships=relations, links=links)
+        updateRecord(ds, recordCache, model, identifier, transform(subNode, description, isDescribedBy, hasExperimentalModality, hasResponsiblePrincipalInvestigator), relationships=relations, links=links)
     except Exception as e:
         log.error("Failed to add summary to dataset '{}'".format(ds))
 
-
-def addAwards(ds, recordCache, identifier, subNode, file):
+def addAwards(bf, ds, recordCache, identifier, subNode):
     log.info("Adding awards...")
 
-    model = getModel(ds, 'award', 'Award', schema=[
+    model = getModel(bf, ds, 'award', 'Award', schema=[
         ModelProperty('award_id', 'Award ID', title=True),
         ModelProperty('title', 'Title'),
         ModelProperty('description', 'Description'),
@@ -864,121 +710,70 @@ def addAwards(ds, recordCache, identifier, subNode, file):
                 'principal_investigator': None,
             }
 
+    record_list = []
     for awardId, _ in subNode.items():
-        file.append("Adding award '{}' to dataset '{}'".format(transform(awardId), ds))
-        updateRecord(ds, recordCache, model, awardId, transform(awardId), file)
+        record_list.append(transform(awardId))
+        # updateRecord(ds, recordCache, model, awardId, transform(awardId))
 
-#%% [markdown]
-### Main body
-#%%
-def update(datasetIds, reset=False):
-    '''
-    Only update the given datasets.
-    if `reset`: clear and re-add all records.
+    log.info('Creating {} new records'.format(len(record_list)))
+    if len(record_list):
+        recs = model.create_records(record_list)
 
-    Returns: list of datasets that failed to update
-    '''
-    log.info('Updating specified datasets:')
-    log.debug('Datasets to update: %s', ' '.join(datasetIds))
-    if reset:
-        oldJson = {}
-        newJson = getJson('full')
-    else:
-        oldJson, newJson = getJson('diff')
-
-    failedDatasets = []
-    for dsId in datasetIds:
-        log.info('Current dataset: %s', dsId)
-        if dsId in SKIP_LIST or dsId in failedDatasets:
-            log.info('skipping...')
-            continue
-        if not authorized(dsId):
-            log.warning('Skipping update: "UNAUTHORIZED: {}"'.format(dsId))
-            continue
-
-        ds = getDataset(dsId)
-        if reset:
-            clearDataset(ds)
-            recordCache = {m: {} for m in MODEL_NAMES}
-        else:
-            recordCache = buildCache(dsId)
-        models = {k: v for k, v in ds.models().items() if k in MODEL_NAMES}
-
-        deleteNode = next((v for k, v in oldJson.items() if k == dsId), None)
-        addNode = next((v for k, v in newJson.items() if k == dsId), None)
-        if not (addNode or deleteNode):
-            log.info('Nothing to update. Skipping...')
-            continue
-
-        if deleteNode:
-            log.debug('Deleting old metadata...')
-            try:
-                deleteData(ds, models, recordCache, deleteNode)
-            except BlackfynnException:
-                log.error("Dataset %s failed to update", dsId)
-                failedDatasets.append(dsId)
-                continue
-            finally:
-                writeCache(dsId, recordCache)
-        if addNode:
-            log.debug('Adding new metadata...')
-            try:
-                addData(ds, dsId, recordCache, addNode)
-            except BlackfynnException:
-                failedDatasets.append(dsId)
-                continue
-            finally:
-                writeCache(dsId, recordCache)
-    return failedDatasets
-
-def updateAll(reset=False):
+def updateAll(cfg, method = 'full'):
     '''
     Update all datasets.
-    if `reset`: clear and re-add all records.
+    if `reset`: clear and re-add all records. If not `reset`, only delete added items
 
     Returns: list of datasets that failed to update
     '''
     log.info('Updating all datasets:')
     update_start_time = time()
 
-    if reset:
-        oldJson = {}
+    oldJson = {}
+    if method == 'full':
         newJson = getJson('full')
-    else:
+    elif method == 'diff':
         oldJson, newJson = getJson('diff')
+    else:
+        raise(Exception('Inccorrect method: {}'.format(method)))
 
     failedDatasets = []
-    instructionList = []
-    log.info('=== Deleting old metadata ===')
-    delete_start_time = time()
 
-    for dsId, node in oldJson.items():
-        log.info('Current dataset: {}'.format(dsId))
-        if dsId in SKIP_LIST:
-            log.info('skipping...')
-            continue
-        if not authorized(dsId):
-            log.warning('Skipping deleting old metadata: "UNAUTHORIZED: {}"'.format(dsId))
-            continue
+    if method == 'diff':
+        log.info('===========================')
+        log.info('== Deleting old metadata ==')
+        log.info('===========================')
+        log.info('')
 
-        ds = getDataset(dsId)
-        if reset:
-            clearDataset(ds)
-            recordCache = {m: {} for m in MODEL_NAMES}
-        else:
-            recordCache = buildCache(dsId)
-        models = {k: v for k, v in ds.models().items() if k in MODEL_NAMES}
-        try:
-            deleteData(ds, models, recordCache, node)
-        except BlackfynnException:
-            log.error("Dataset {} failed to update".format(dsId))
-            failedDatasets.append(dsId)
-            continue
-        finally:
-            writeCache(dsId, recordCache)
+        delete_start_time = time()
 
-    duration = int((time() - delete_start_time) * 1000)
-    log.info("Deleted old metadata in {} milliseconds".format(duration))
+        ## Delete the old data in existing dataset for specific models
+        for dsId, node in oldJson.items():
+            log.info('Current dataset: {}'.format(dsId))
+
+            # Get Dataset, or Create dataset with Name=dsId if it does not exist.
+            ds = getCreateDataset(dsId)
+
+            # If reset, then clear out all records. Otherwise, only clear out records that were 
+            # added through this process
+            if method == 'full':
+                clearDataset(cfg.bf, ds)
+                recordCache = {m: {} for m in MODEL_NAMES}
+            else:
+                recordCache = cfg.db_client.buildCache(dsId)
+
+            models = {k: v for k, v in ds.models().items() if k in MODEL_NAMES}
+            try:
+                deleteData(ds, models, recordCache, node)
+            except BlackfynnException:
+                log.error("Dataset {} failed to update".format(dsId))
+                failedDatasets.append(dsId)
+                continue
+            finally:
+                cfg.db_client.writeCache(dsId, recordCache)
+
+        duration = int((time() - delete_start_time) * 1000)
+        log.info("Deleted old metadata in {} milliseconds".format(duration))
 
     log.info('===========================')
     log.info('=== Adding new metadata ===')
@@ -987,54 +782,38 @@ def updateAll(reset=False):
     new_start_time = time()
     for dsId, node in newJson.items():
         log.info('Current dataset: {}'.format(dsId))
-        instructionList.append('Current dataset: {}'.format(dsId))
-        if dsId in SKIP_LIST or dsId in failedDatasets:
-            log.info('skipping...')
-            continue
-        if not authorized(dsId):
-            log.warning('Skipping adding new metadata: "UNAUTHORIZED: {}"'.format(dsId))
-            continue
 
-        ds = getDataset(dsId)
-        if reset:
-            clearDataset(ds)
+        # Need to get existing dataset, or create new dataset (in dev)
+        ds = getCreateDataset(cfg.bf, dsId)
+
+        # Need to clear dataset records/models if full update and 
+        # set cache
+        if method == 'full':
+            clearDataset(cfg.bf, ds)
             recordCache = {m: {} for m in MODEL_NAMES}
         else:
-            recordCache = buildCache(dsId)
+            recordCache = cfg.db_client.buildCache(dsId)
+
+        # Add data from the JSON file to the BF Dataset
         try:
-            addData(ds, dsId, recordCache, node, instructionList)
+            addData(cfg.bf, ds, dsId, recordCache, node)
         except BlackfynnException:
             log.error('Dataset {} failed to update'.format(dsId))
             failedDatasets.append(dsId)
             continue
         finally:
-            writeCache(dsId, recordCache)
+            cfg.db_client.writeCache(dsId, recordCache)
 
+    # Timing stats
     duration = int((time() - new_start_time) * 1000)
     log.info("Added new metadata in {} milliseconds".format(duration))
-
     duration = int((time() - update_start_time) * 1000)
     log.info("Update datasets in {} milliseconds".format(duration))
 
-    with open(INSTRUCTION_FILE, 'w') as f:
-        for item in instructionList:
-            f.write("%s\n" % item)
-        f.close()
-    return failedDatasets
+    # Update dashboard when complete when running in production.
+    if cfg.env == 'prod':
+        update_sparc_dashboard()
 
-def update_sparc_dataset():
-    sparc_ds = getDataset(SPARC_DATASET_ID)
-    model = sparc_ds.get_model('Update_Run')
-    model.create_record({'name':'TTL Update', 'status': DT.now()})
+    return 
 
-
-bf = bfClient()
-db = getDB()
-
-if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        update(sys.argv[1:])
-    else:
-        updateAll()
-
-    log.info('Update finished.')
+    

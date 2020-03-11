@@ -38,22 +38,6 @@ from base import (
 )
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
-
-fh = logging.FileHandler('/tmp/curation_val.log')
-fh.setLevel(logging.WARNING)
-
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-
-# create formatter and add it to the handlers
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-ch.setFormatter(formatter)
-fh.setFormatter(formatter)
-
-log.addHandler(fh)
-log.addHandler(ch)
-
 
 #%% [markdown]
 ### Helper functions
@@ -127,8 +111,9 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
                 if key in data:
                     log.warning('Unexpected creation of array for:  %s - %s - %s', datasetId, key, value)
                     log.warning('Existing value for this key     :  %s - %s - %s', datasetId, key, data[key])
-                    data[key] = [data[key], value]
-                    arrayProps.append(key)
+                    log.warning('----- continue to use initial value -----')
+                    # data[key] = [data[key], value]
+                    # arrayProps.append(key)
                 else:
                     data[key] = value
 
@@ -141,8 +126,9 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
             if key in data:
                 log.warning('Unexpected creation of array for:  %s - %s - %s', datasetId, key, value)
                 log.warning('Existing value for this key     :  %s - %s - %s', datasetId, key, data[key])
-                data[key] = [data[key], value]
-                arrayProps.append(key)
+                log.warning('----- continue to use initial value -----')
+                # data[key] = [data[key], value]
+                # arrayProps.append(key)
             else:
                 data[key] = value
 

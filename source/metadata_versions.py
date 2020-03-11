@@ -8,7 +8,7 @@ import requests
 from requests.compat import quote, unquote
 
 from base import SSMClient
-from config import Configs
+# from config import Configs
 
 from base import (
     TTL_FILE_NEW,
@@ -16,8 +16,8 @@ from base import (
 )
 
 BASE_URL = 'https://cassava.ucsd.edu/sparc/archive/exports/'
-cfg = Configs()
-ssm = SSMClient()
+# cfg = Configs()
+# ssm = SSMClient()
 
 def latestVersion():
     r = requests.get(BASE_URL)
@@ -25,11 +25,11 @@ def latestVersion():
     hrefs = (x.get('href') for x in soup.find_all(href=lambda x: x and not x.startswith('.')))
     return unquote(max(hrefs)).strip('/')
 
-def setLastUpdated(newVersion):
-    ssm.set('last_updated', newVersion)
+def setLastUpdated(cfg, newVersion):
+    cfg.ssm.set('last_updated', newVersion)
 
-def getLastUpdated():
-    return ssm.get('last_updated')
+def getLastUpdated(cfg):
+    return cfg.ssm.get('last_updated')
 
 def getTTL(version, filename):
     '''Get a version of the sparc metadata file, save it to `filename`'''

@@ -1,3 +1,5 @@
+bf_io.py
+config.py
 setup.py
 ttl_update_cli.py
 ttl_update.egg-info/PKG-INFO
