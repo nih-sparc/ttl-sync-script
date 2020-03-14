@@ -112,8 +112,6 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
                     log.warning('Unexpected creation of array for:  %s - %s - %s', datasetId, key, value)
                     log.warning('Existing value for this key     :  %s - %s - %s', datasetId, key, data[key])
                     log.warning('----- continue to use initial value -----')
-                    # data[key] = [data[key], value]
-                    # arrayProps.append(key)
                 else:
                     data[key] = value
 
@@ -127,8 +125,6 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
                 log.warning('Unexpected creation of array for:  %s - %s - %s', datasetId, key, value)
                 log.warning('Existing value for this key     :  %s - %s - %s', datasetId, key, data[key])
                 log.warning('----- continue to use initial value -----')
-                # data[key] = [data[key], value]
-                # arrayProps.append(key)
             else:
                 data[key] = value
 
@@ -254,8 +250,3 @@ def buildJson(_type):
     with open(outputFile, 'w') as f:
         json.dump(output, f)
         log.info("Added %d datasets to '%s'", len(output), f.name)
-
-if __name__ == '__main__':
-    if len(sys.argv != 2):
-        raise Exception("Must use option 'diff' or 'full'")
-    buildJson(sys.argv[1])

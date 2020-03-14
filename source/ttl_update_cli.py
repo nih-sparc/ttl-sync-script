@@ -3,7 +3,7 @@ import metadata_versions
 import new_metadata
 import os, logging
 from config import Configs
-from parse_json import updateAll
+from parse_json import update_datasets
 
 
 root_log = logging.getLogger()
@@ -39,7 +39,7 @@ def update(env):
     if env in ['prod', 'dev']:
         log.info('Starting UPDATE for: {}'.format(env))
         cfg = Configs(env)
-        out = updateAll(cfg, 'full')
+        out = update_datasets(cfg, 'full')
     else:
         log.warning('Incorrect argument (''prod'', ''dev'')')
 

@@ -46,6 +46,8 @@ def clearDataset(bf, dataset):
     - subject
     - summary
     - term
+    - human_subject
+    - animal_subject
 
     Also removes models.
 

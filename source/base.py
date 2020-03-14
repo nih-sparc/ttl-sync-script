@@ -11,7 +11,7 @@ from time import sleep
 log = logging.getLogger(__name__)
 
 ### Settings ###
-MODEL_NAMES = ('protocol', 'researcher', 'sample', 'subject', 'summary', 'term', 'award')
+MODEL_NAMES = ('protocol', 'researcher', 'sample', 'subject', 'summary', 'term', 'award', 'human_subject','animal_subject')
 JSON_METADATA_EXPIRED = '/tmp/expired_metadata.json'
 JSON_METADATA_FULL = '/tmp/full_metadata.json'
 JSON_METADATA_NEW = '/tmp/new_metadata.json'
