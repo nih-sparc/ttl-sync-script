@@ -24,58 +24,17 @@ from base import (
     JSON_METADATA_NEW,
     SPARC_DATASET_ID,
     SSMClient,
-    MODEL_NAMES
+    MODEL_NAMES,
+    get_record_by_id,
+    getJson,
+    getFirst,
+    get_bf_model,
+    get_as_list
 )
 from pprint import pprint
 
 logging.basicConfig(format="%(asctime);s%(filename)s:%(lineno)d:\t%(message)s")
 log = logging.getLogger(__name__)
-
-### Helper function to check li
-def contains(list, filter):
-    for x in list:
-        if filter(x):
-            return x
-    return False
-
-### Parsing JSON data:
-def getJson(_type):
-    '''Load JSON files containing expired and new metadata'''
-    if _type == 'diff':
-        with open(JSON_METADATA_EXPIRED, 'r') as f1:
-            expired = json.load(f1)
-            log.info("Loaded '{}'".format(JSON_METADATA_EXPIRED))
-        with open(JSON_METADATA_NEW, 'r') as f2:
-            new = json.load(f2)
-            log.info("Loaded '{}'".format(JSON_METADATA_NEW))
-        return expired, new
-    if _type == 'full':
-        with open(JSON_METADATA_FULL, 'r') as f:
-            log.info("Loaded '{}'".format(JSON_METADATA_FULL))
-            data = json.load(f)
-        return data
-    raise Exception("Must use 'diff' or 'full' option")
-
-def get_record_by_id(json_id, model, record_cache):
-    """Get Blackfynn Record by its JSON ID
-
-        The JSON_ID should be DatasetID_ModelName_RecordName
-
-        The record_cache should map JSON_ID to Blackfynn_ID
-    """
-    
-    # Because we expect that this exist at this point.
-    if not json_id in record_cache[model.type]:
-        raise(Exception("JSON-ID: {}".format(json_id)))
-
-    # Get the Blackfynn ID, or the Blackfynn Record from cache
-    bf_obj = record_cache[model.type][json_id]
-
-    # Fetch the Record and return
-    if isinstance(bf_obj, str):
-        return model.get(bf_obj)
-    else:
-        return bf_obj
 
 def unitValue(node, name, model_unit = 'None'):
     """Method that returns a value that is associated with a unit
@@ -130,12 +89,6 @@ def unitValue(node, name, model_unit = 'None'):
 
     # Return value
     return value
-
-def getFirst(node, name, default=None):
-    try:
-        return node[name][0]
-    except (KeyError, IndexError):
-        return default
 
 ### Removing data: Delete specific records from dataset
 def deleteData(ds, models, recordCache, node):
@@ -247,15 +200,6 @@ def removeProperties(ds, record, recordCache, values, arrayValues):
                 log.error("Failed to edit property '{}' of record '{}'".format(prop, record))
                 raise BlackfynnException(e)
 
-### Get array of all packages, including nested packages
-def get_packages(ds):
-    packages = []
-    for item in ds.items:
-        packages.append(item)
-        if isinstance(item, BaseCollection):
-            packages += get_packages(item)
-    return packages
-
 ### Adding data:
 def addData(bf, ds, dsId, recordCache, node):
     '''
@@ -286,7 +230,7 @@ def addLinks(bf, ds, dsId, recordCache, node):
     # addTerms(bf,ds, recordCache, node['Terms'])
     # addResearchers(bf,ds, recordCache, node['Researcher'])
     addSubjectLinks(bf, ds, recordCache, node['Subjects'])
-    # addSamples(bf,ds, recordCache, node['Samples'])
+    addSampleLinks(bf,ds, recordCache, node['Samples'])
     # addAwards(bf,ds, recordCache, dsId, node['Awards'])
     # addSummary(bf,ds, recordCache, dsId, node['Resource'])
 
@@ -310,10 +254,10 @@ def addRandomTerms(ds, label, recordCache):
     """
 
     if not hasattr(addRandomTerms, "term_model"):
-        addRandomTerms.term_model = ds.get_model('term')
+        addRandomTerms.term_model = get_bf_model(ds, 'term')
         addRandomTerms.model_ds = ds.id
     elif addRandomTerms.model_ds != ds.id:
-        addRandomTerms.term_model = ds.get_model('term')
+        addRandomTerms.term_model = get_bf_model(ds, 'term')
         addRandomTerms.model_ds = ds.id
  
     # terms = ds.get_model('term')
@@ -401,7 +345,7 @@ def addRecordLinks(ds, recordCache, model, record, links):
 
         # Find model name of the linked property target
         log.info('{}'.format(linkedProp.target))
-        targetType = ds.get_model(linkedProp.target).type
+        targetType = get_bf_model(ds, linkedProp.target).type
 
         for item in valueList:
             # Check if value is in the record cache
@@ -414,7 +358,7 @@ def addRecordLinks(ds, recordCache, model, record, links):
                 if targetType == 'term':
                     linkedRecId = addRandomTerms(ds, item, recordCache)
                 else:
-                    log.warning('Unable to link to non-existing record {}'.format(targetType.target))
+                    log.warning('Unable to link to non-existing record {}'.format(targetType))
                     continue
             
             # Try to link record to property
@@ -426,7 +370,7 @@ def addRecordLinks(ds, recordCache, model, record, links):
 
 def addRelationships(ds, recordCache, model, record, relationships, file):
     'Add relationships to a record'
-    terms = ds.get_model('term')
+    terms = ds.get_bf_model(ds, 'term')
     for name, values in relationships.items():
         if name in ('is-about', 'involves-anatomical-region', 'protocol-employs-technique'):
             try:
@@ -456,42 +400,49 @@ def addRelationships(ds, recordCache, model, record, relationships, file):
 def addProtocols(bf, ds, recordCache, subNode):
     log.info("Adding protocols...")
 
-    protocol_links = {}
-    model = getModel(bf, ds, 'protocol', 'Protocol', schema=[
-        ModelProperty('label', 'Name', title=True),
-        ModelProperty('url', 'URL',data_type=ModelPropertyType(
-                data_type=str, format='url')),
-        ModelProperty('protocolHasNumberOfSteps', 'Number of Steps'), 
-        ModelProperty('hasNumberOfProtcurAnnotations', 'Number of Protcur Annotations')
-    ])
-    record_list = []
-    for url, protocol in subNode.items():
-        protocol['url'] = url
-        record_list.append({k: protocol.get(k) for k in ('label', 'url', 'protocolHasNumberOfSteps', 'hasNumberOfProtcurAnnotations')})
-    
-    log.info('Creating {} new records'.format(len(record_list)))
-    if len(record_list):
-        recs = model.create_records(record_list)
+    def create_model(bf, ds):
+        return getModel(bf, ds, 'protocol', 'Protocol', schema=[
+            ModelProperty('label', 'Name', title=True),
+            ModelProperty('url', 'URL',data_type=ModelPropertyType(
+                    data_type=str, format='url')),
+            ModelProperty('publisher', 'publisher'),
+            ModelProperty('date', 'Date', data_type=ModelPropertyType(
+                    data_type='date' )),
+            ModelProperty('protocolHasNumberOfSteps', 'Number of Steps'), 
+            ModelProperty('hasNumberOfProtcurAnnotations', 'Number of Protcur Annotations')
+        ])
 
-    return protocol_links
+    def transform(subNode):
+        return {
+             'label': subNode.get('label', '(no label)'),
+             'url': subNode.get('http://www.w3.org/2002/07/owl#sameAs'),
+             'date': subNode.get('date'),
+             'publisher': subNode.get('publisher'),
+             'protocolHasNumberOfSteps': subNode.get('protocolHasNumberOfSteps'),
+             'hasNumberOfProtcurAnnotations': subNode.get('hasNumberOfProtcurAnnotations')
+        }
+
+    updateRecords(bf,ds,subNode, "protocol", recordCache,  create_model, transform)
 
 def addTerms(bf, ds, recordCache, subNode):
     log.info("Adding terms...")
-    model = getModel(bf, ds, 'term', 'Term', schema=[
-        ModelProperty('label', 'Label', title=True), # is a list
-            ModelProperty('curie', 'CURIE'),
-            ModelProperty('definitions', 'Definition'), # is a list
-            ModelProperty('abbreviations', 'Abbreviations', data_type=ModelPropertyEnumType(
-                data_type=str, multi_select=True)), # is a list
-            ModelProperty('synonyms', 'Synonyms', data_type=ModelPropertyEnumType(
-                data_type=str, multi_select=True)), # is a list
-            ModelProperty('acronyms', 'Acronyms', data_type=ModelPropertyEnumType(
-                data_type=str, multi_select=True)), # is a list
-            ModelProperty('categories', 'Categories', data_type=ModelPropertyEnumType(
-                data_type=str, multi_select=True)), # is a list
-            ModelProperty('iri', 'IRI')
-        ]
-    )
+
+    def create_model(bf, ds):
+        return getModel(bf, ds, 'term', 'Term', schema=[
+            ModelProperty('label', 'Label', title=True), # is a list
+                ModelProperty('curie', 'CURIE'),
+                ModelProperty('definitions', 'Definition'), # is a list
+                ModelProperty('abbreviations', 'Abbreviations', data_type=ModelPropertyEnumType(
+                    data_type=str, multi_select=True)), # is a list
+                ModelProperty('synonyms', 'Synonyms', data_type=ModelPropertyEnumType(
+                    data_type=str, multi_select=True)), # is a list
+                ModelProperty('acronyms', 'Acronyms', data_type=ModelPropertyEnumType(
+                    data_type=str, multi_select=True)), # is a list
+                ModelProperty('categories', 'Categories', data_type=ModelPropertyEnumType(
+                    data_type=str, multi_select=True)), # is a list
+                ModelProperty('iri', 'IRI')
+            ]
+        )
         
     def transform(term):
         return {
@@ -505,39 +456,25 @@ def addTerms(bf, ds, recordCache, subNode):
             'iri': term.get('iri'),
         }
 
-    tags = []
-    # record_list = []
-    term_record_list = []
-    term_json_id_list = []
-    for curie, term in subNode.items():
-        # record_list.append(transform(term))
-        # updateRecord(ds, recordCache, model, curie, transform(term))
-        tags.append(getFirst(term, 'labels'))
-        term_record_list.append(transform(term))
-        term_json_id_list.append("{}".format(curie))
+    # Always create a TERM model, as term records can be created in other model methods
+    model = create_model(bf, ds)
 
-    log.info('Creating {} new records'.format(len(term_record_list)))
-    if len(term_record_list):
-        recordCache['term'].update(zip(term_json_id_list, model.create_records(term_record_list)))
-
-        # recs = model.create_records(record_list)
-
-    ds.tags=list(set(tags+ds.tags))
-    ds.update()
+    updateRecords(bf,ds,subNode, "term", recordCache,  create_model, transform)
 
 def addResearchers(bf, ds, recordCache, subNode):
     log.info("Adding researchers...")
 
-    model = getModel(bf, ds, 'researcher', 'Researcher', schema=[
-            ModelProperty('lastName', 'Last name', title=True),
-            ModelProperty('firstName', 'First name'),
-            ModelProperty('middleName', 'Middle name'),
-            ModelProperty('hasAffiliation', 'Affiliation', data_type=ModelPropertyEnumType(
-                data_type=str, multi_select=True)), # list
-            ModelProperty('hasRole', 'Role', data_type=ModelPropertyEnumType(
-                data_type=str, multi_select=True)), # list
-            ModelProperty('hasORCIDId', 'ORCID iD')
-    ])
+    def create_model(bf, ds):
+        return getModel(bf, ds, 'researcher', 'Researcher', schema=[
+                ModelProperty('lastName', 'Last name', title=True),
+                ModelProperty('firstName', 'First name'),
+                ModelProperty('middleName', 'Middle name'),
+                ModelProperty('hasAffiliation', 'Affiliation', data_type=ModelPropertyEnumType(
+                    data_type=str, multi_select=True)), # list
+                ModelProperty('hasRole', 'Role', data_type=ModelPropertyEnumType(
+                    data_type=str, multi_select=True)), # list
+                ModelProperty('hasORCIDId', 'ORCID iD')
+        ])
 
     def transform(subNode):
         return {
@@ -549,18 +486,11 @@ def addResearchers(bf, ds, recordCache, subNode):
             'hasORCIDId': subNode.get('hasORCIDId')
         }
 
-    record_list = []
-    for userId, researcher in subNode.items():
-        record_list.append(transform(researcher))
-        # updateRecord(ds, recordCache, model, userId, transform(researcher))
-    
-    log.info('Creating {} new records'.format(len(record_list)))
-    if len(record_list):
-        recs = model.create_records(record_list)    
+    updateRecords(bf,ds,subNode, "researcher", recordCache,  create_model, transform)
 
 def addSubjects(bf, ds, recordCache, subNode):
     log.info("Adding subjects...")
-    termModel = ds.get_model('term')
+    termModel = get_bf_model(ds, 'term')
 
     ## Define Model Generators
     def create_human_model(bf, ds):
@@ -682,12 +612,12 @@ def addSubjects(bf, ds, recordCache, subNode):
     
     ## Create records
     if len(human_record_list) > 0:
-        log.info('Creating {} new Human Subject Records'.format(len(human_record_list)))
+        log.info('Creating {} new human_subject Records'.format(len(human_record_list)))
         human_model = create_human_model(bf, ds)
         recordCache['human_subject'].update(zip(human_json_id_list,human_model.create_records(human_record_list)))
 
     elif len(animal_record_list) > 0:
-        log.info('Creating {} new Animal Subject Records'.format(len(animal_record_list)))
+        log.info('Creating {} new animal_subject Records'.format(len(animal_record_list)))
         animal_model = create_animal_model(bf, ds)
         recordCache['animal_subject'].update(zip(animal_json_id_list,animal_model.create_records(animal_record_list)))
 
@@ -695,10 +625,15 @@ def addSubjectLinks(bf, ds, recordCache, subNode):
 
     model = None
     subtype = subNode.get('animalSubjectIsOfSpecies')
-    if subtype == 'homo sapiens':
-        model = ds.get_model('human_subject')
-    else:
-        model = ds.get_model('animal_subject')
+    try:
+        if subtype == 'homo sapiens':
+            model = get_bf_model(ds, 'human_subject')
+        else:
+            model = get_bf_model(ds, 'animal_subject')
+    except:
+        # No models for subject defined
+        return
+
 
     def transform_human(subNode, localId):
         links = {
@@ -726,49 +661,48 @@ def addSubjectLinks(bf, ds, recordCache, subNode):
             links = transform_human(subjNode, subjectId)
         else:
             links = transform_animal(subjNode, subjectId)
-            
+
         addRecordLinks(ds, recordCache, model, record, links)
 
 def addSamples(bf, ds, recordCache, subNode):
-    log.info("Adding samples...")
+    log.info("Adding samples to dataset: {}".format(ds.id))
 
-    # Check if Human or Animal Subjects in Model or create new 
-    # generic model to support linked property "derivedFromSubject"
-    # Assuming no datasets with both human, and animal subjects
-    models = ds.models()
-    subModel = None
-    if 'human_subject' in models:
-        subModel = models['human_subject']
-    elif 'animal_subject' in models:
-        subModel = models['animal_subject']
-    else:
-        subModel = getModel(bf, ds, 'subject', 'Subject',
+    def create_sample_model(bf, ds):
+        
+        # Check if Human or Animal Subjects in Model or create new 
+        # generic model to support linked property "derivedFromSubject"
+        # Assuming no datasets with both human, and animal subjects
+        models = ds.models()
+        subModel = None
+        if 'human_subject' in models:
+            subModel = models['human_subject']
+        elif 'animal_subject' in models:
+            subModel = models['animal_subject']
+        else:
+            subModel = getModel(bf, ds, 'subject', 'Subject',
+                schema=[
+                    ModelProperty('localId', 'ID', title=True)
+                ]
+                )
+        
+        return getModel(bf, ds, 'sample', 'Sample',
             schema=[
-                ModelProperty('localId', 'ID', title=True)
-            ]
-            )
-
-    # Get/Create the Sample model
-    model = getModel(bf, ds, 'sample', 'Sample',
-        schema=[
-            ModelProperty('localId', 'ID', title=True),
-            ModelProperty('label', 'Label'),
-            ModelProperty('description', 'Description'), # list
-            ModelProperty('hasAssignedGroup', 'Group', data_type=ModelPropertyEnumType(
-                data_type=str, multi_select=True)), # list
-            ModelProperty('hasDigitalArtifactThatIsAboutIt', 'Digital artifact', data_type=ModelPropertyEnumType(
-                data_type=str, multi_select=True)), # filename list
-            #ModelProperty('hasDigitalArtifactThatIsAboutItHash', ), # list
-            ModelProperty('localExecutionNumber', 'Execution number', data_type=ModelPropertyEnumType(
-                data_type=str, multi_select=True)), # list
-            ModelProperty('providerNote', 'Provider note', data_type=ModelPropertyEnumType(
-                data_type=str, multi_select=True)), # list
-        ], linked=[
-            LinkedModelProperty('raw/wasExtractedFromAnatomicalRegion', ds.get_model('term'), 'Extracted from anatomical region'),
-            LinkedModelProperty('wasDerivedFromSubject', subModel, 'Derived from subject')
-        ])
-    anatomicalRegionLink = model.linked['raw/wasExtractedFromAnatomicalRegion']
-    fromSubjectLink = model.linked['wasDerivedFromSubject']
+                ModelProperty('localId', 'ID', title=True),
+                ModelProperty('label', 'Label'),
+                ModelProperty('description', 'Description'), # list
+                ModelProperty('hasAssignedGroup', 'Group', data_type=ModelPropertyEnumType(
+                    data_type=str, multi_select=True)), # list
+                ModelProperty('hasDigitalArtifactThatIsAboutIt', 'Digital artifact', data_type=ModelPropertyEnumType(
+                    data_type=str, multi_select=True)), # filename list
+                #ModelProperty('hasDigitalArtifactThatIsAboutItHash', ), # list
+                ModelProperty('localExecutionNumber', 'Execution number', data_type=ModelPropertyEnumType(
+                    data_type=str, multi_select=True)), # list
+                ModelProperty('providerNote', 'Provider note', data_type=ModelPropertyEnumType(
+                    data_type=str, multi_select=True)), # list
+            ], linked=[
+                LinkedModelProperty('extractedFromAnatomicalRegion', get_bf_model(ds, 'term'), 'Extracted from anatomical region'),
+                LinkedModelProperty('wasDerivedFromSubject', subModel, 'Derived from subject')
+            ])
 
     def transform(subNode):
         return {
@@ -781,157 +715,143 @@ def addSamples(bf, ds, recordCache, subNode):
             'providerNote': subNode.get('providerNote')
         }
 
-    regex = re.compile(r'.*/subjects/(.+)')
-    record_list = []
-    for sampleId, subNode in subNode.items():
-        # get linked values:
-        links = {}
-        if 'raw/wasExtractedFromAnatomicalRegion' in subNode:
-            links['raw/wasExtractedFromAnatomicalRegion'] = subNode['raw/wasExtractedFromAnatomicalRegion']
+    updateRecords(bf,ds,subNode, "sample", recordCache,  create_sample_model, transform)
+
+def addSampleLinks(bf, ds, recordCache, subNode):
+
+    try:
+        model = get_bf_model(ds, 'sample')
+    except:
+        return
+
+    def transform_sample(subNode, localId):
+        subjectId = None
         if 'wasDerivedFromSubject' in subNode:
-            identifier = regex.match(subNode['wasDerivedFromSubject']).group(1)
-            if identifier in recordCache['subject']:
-                links['wasDerivedFromSubject'] = identifier
+            regex = re.compile(r'.*/subjects/(.+)')
+            subjectId = regex.match(subNode['wasDerivedFromSubject']).group(1)
 
-        record_list.append(transform(subNode))
-        # rec = updateRecord(ds, recordCache, model, sampleId, transform(subNode), links)
+        links = {
+            'wasDerivedFromSubject': subjectId,
+            'extractedFromAnatomicalRegion': subNode.get('raw/wasExtractedFromAnatomicalRegion'),
+        }
+        return links
 
-        # if subNode.get('hasDigitalArtifactThatIsAboutIt') is not None:
-        #     for fullFileName in subNode.get('hasDigitalArtifactThatIsAboutIt'):
-        #         filename, file_extension = os.path.splitext(fullFileName)
-        #         pkgs = ds.get_packages_by_filename(filename)
-        #         if len(pkgs) > 0:
-        #             for pkg in pkgs:
-        #                 pkg.relate_to(rec)
+    # Iterate over multiple subject records, single dataset
+    for sampleId, subjNode in subNode.items():
+        record = get_record_by_id(sampleId, model, recordCache)
+        links = transform_sample(subjNode, sampleId)
+        addRecordLinks(ds, recordCache, model, record, links)
     
-    log.info('Creating {} new records'.format(len(record_list)))
-    if len(record_list):
-        recs = model.create_records(record_list)    
+        # Associate files with Samples
+        if subNode.get('hasDigitalArtifactThatIsAboutIt') is not None:
+            for fullFileName in subNode.get('hasDigitalArtifactThatIsAboutIt'):
+                log.info('Adding File Links: {}'.format(fullFileName))
+                filename, file_extension = os.path.splitext(fullFileName)
+                pkgs = ds.get_packages_by_filename(filename)
+                if len(pkgs) > 0:
+                    for pkg in pkgs:
+                        pkg.relate_to(record)
 
 def addSummary(bf, ds, recordCache, identifier, subNode):
     log.info("Adding summary...")
+    
+    def create_model(bf, ds):
+        return getModel(bf, ds, 'summary', 'Summary', schema=[
+            ModelProperty('title', 'Title', title=True), # list
+            ModelProperty('hasResponsiblePrincipalInvestigator', 'Responsible Principal Investigator',
+                        data_type=ModelPropertyEnumType(data_type=str, multi_select=True)),
+            # list of ORCID URLs, blackfynn user IDs, and, and Blackfynn contributor URLs
+            # TODO: make this a relationship?
+            ModelProperty('isDescribedBy', 'Publication URL', data_type=ModelPropertyEnumType(
+                data_type=str, multi_select=True)), # list (of urls)
+            ModelProperty('description', 'Description', data_type=ModelPropertyEnumType(
+                data_type=str, multi_select=True)), # list
+            # TODO: update dataset description using PUT /datasets/{id}/readme
+            ModelProperty('collectionTitle', 'Collection'),
+            ModelProperty('curationIndex', 'Curation index'), # number string
+            ModelProperty('hasExperimentalModality', 'Experimental modality', data_type=ModelPropertyEnumType(
+                data_type=str, multi_select=True)), # list
+            ModelProperty('hasNumberOfContributors', 'Number of contributors'), # number string
+            ModelProperty('hasNumberOfDirectories', 'Number of directories'), # number string
+            ModelProperty('hasNumberOfFiles', 'Number of files'), # number string
+            ModelProperty('hasNumberOfSamples', 'Number of samples'), # number string
+            ModelProperty('hasNumberOfSubjects', 'Number of subjects'), # number string
+            ModelProperty('acknowledgements', 'Acknowledgements'),
+            ModelProperty('submissionIndex', 'Submission index'), # number string
+            ModelProperty('errorIndex', 'Error index'), # number string
+            ModelProperty('label', 'Label'),
+            ModelProperty('hasSizeInBytes', 'Size (bytes)'), # number string
+        ], linked=[
+            LinkedModelProperty('hasAwardNumber', get_bf_model(ds, 'award'), 'Award number'),
+        ])
 
-    termModel = ds.get_model('term')
-    model = getModel(bf, ds, 'summary', 'Summary', schema=[
-        ModelProperty('title', 'Title', title=True), # list
-        ModelProperty('hasResponsiblePrincipalInvestigator', 'Responsible Principal Investigator',
-                      data_type=ModelPropertyEnumType(data_type=str, multi_select=True)),
-        # list of ORCID URLs, blackfynn user IDs, and, and Blackfynn contributor URLs
-        # TODO: make this a relationship?
-        ModelProperty('isDescribedBy', 'Publication URL', data_type=ModelPropertyEnumType(
-            data_type=str, multi_select=True)), # list (of urls)
-        ModelProperty('description', 'Description', data_type=ModelPropertyEnumType(
-            data_type=str, multi_select=True)), # list
-        # TODO: update dataset description using PUT /datasets/{id}/readme
-        ModelProperty('collectionTitle', 'Collection'),
-        ModelProperty('curationIndex', 'Curation index'), # number string
-     #   ModelProperty('hasAwardNumber', 'Award number'),
-        ModelProperty('hasExperimentalModality', 'Experimental modality', data_type=ModelPropertyEnumType(
-            data_type=str, multi_select=True)), # list
-        ModelProperty('hasNumberOfContributors', 'Number of contributors'), # number string
-        ModelProperty('hasNumberOfDirectories', 'Number of directories'), # number string
-        ModelProperty('hasNumberOfFiles', 'Number of files'), # number string
-        ModelProperty('hasNumberOfSamples', 'Number of samples'), # number string
-        ModelProperty('hasNumberOfSubjects', 'Number of subjects'), # number string
-        ModelProperty('acknowledgements', 'Acknowledgements'),
-        ModelProperty('submissionIndex', 'Submission index'), # number string
-        ModelProperty('errorIndex', 'Error index'), # number string
-        ModelProperty('label', 'Label'),
-        ModelProperty('hasSizeInBytes', 'Size (bytes)'), # number string
-    ], linked=[
-        LinkedModelProperty('hasAwardNumber', ds.get_model('award'), 'Award number'),
-    ])
-    hasAwardNumber = model.linked['hasAwardNumber']
-
-    def transform(subNode, description, isDescribedBy, hasExperimentalModality, hasResponsiblePrincipalInvestigator):
+    def transform(subNode):
         return {
-            'isDescribedBy': isDescribedBy,
+            'isDescribedBy': get_as_list(subNode, 'isDescribedBy'),
             'acknowledgements': subNode.get('acknowledgements'),
             'collectionTitle': subNode.get('collectionTitle'),
             'curationIndex': subNode.get('curationIndex'),
-            'description': description,
+            'description': get_as_list(subNode, 'describtion'),
             'errorIndex': subNode.get('errorIndex'),
-          #  'hasAwardNumber': subNode['hasAwardNumber'] if 'hasAwardNumber' in subNode else None,
-            'hasExperimentalModality': hasExperimentalModality,
+            'hasExperimentalModality': get_as_list(subNode, 'hasExperimentalModality'),
             'hasNumberOfContributors': subNode.get('hasNumberOfContributors'),
             'hasNumberOfDirectories': subNode.get('hasNumberOfDirectories'),
             'hasNumberOfFiles': subNode.get('hasNumberOfFiles'),
             'hasNumberOfSamples': subNode.get('hasNumberOfSamples'),
             'hasNumberOfSubjects': subNode.get('hasNumberOfSubjects'),
-            'hasResponsiblePrincipalInvestigator': hasResponsiblePrincipalInvestigator,
+            'hasResponsiblePrincipalInvestigator': get_as_list(subNode, 'hasResponsiblePrincipalInvestigator'),
             'hasSizeInBytes': subNode.get('hasSizeInBytes'),
             'label': subNode.get('label'),
             'submissionIndex': subNode.get('submissionIndex'),
             'title': getFirst(subNode, 'title', default=subNode.get('label', '(no label)')),
         }
 
-    if 'hasResponsiblePrincipalInvestigator' in subNode:
-        if isinstance(subNode.get('hasResponsiblePrincipalInvestigator'), list):
-            hasResponsiblePrincipalInvestigator = subNode.get('hasResponsiblePrincipalInvestigator')
-        else:
-            hasResponsiblePrincipalInvestigator = [subNode.get('hasResponsiblePrincipalInvestigator')]
-    else:
-        hasResponsiblePrincipalInvestigator = None
+    
+    # links = {}
 
-    if 'hasExperimentalModality' in subNode:
-        if isinstance(subNode.get('hasExperimentalModality'), list):
-            hasExperimentalModality = subNode.get('hasExperimentalModality')
-        else:
-            hasExperimentalModality = [subNode.get('hasExperimentalModality')]
-    else:
-        hasExperimentalModality = None
-
-    if 'isDescribedBy' in subNode:
-        if isinstance(subNode.get('isDescribedBy'), list):
-            isDescribedBy = subNode.get('isDescribedBy')
-        else:
-            isDescribedBy = [subNode.get('isDescribedBy')]
-    else:
-        isDescribedBy = None
-
-    if 'description' in subNode:
-        if isinstance(subNode.get('description'), list):
-            description = subNode.get('description')
-        else:
-            description = [subNode.get('description')]
-    else:
-        description = None
-
-    links = {}
-
-    relations = {}
+    # relations = {}
     # get "is about" relationships
 
-    links['hasAwardNumber'] = subNode['hasAwardNumber'] if ('hasAwardNumber' in subNode and subNode['hasAwardNumber'] in recordCache['award']) else None
+    # links['hasAwardNumber'] = subNode['hasAwardNumber'] if ('hasAwardNumber' in subNode and subNode['hasAwardNumber'] in recordCache['award']) else None
 
-    regex = re.compile(r'\w+:\w+')
-    for value in subNode.get('http://purl.obolibrary.org/obo/IAO_0000136', []):
-        if regex.match(value):
-            relations.setdefault('is-about', []).append(value)
+    # regex = re.compile(r'\w+:\w+')
+    # for value in subNode.get('http://purl.obolibrary.org/obo/IAO_0000136', []):
+    #     if regex.match(value):
+    #         relations.setdefault('is-about', []).append(value)
 
-    # get "involves anatomical region" relationships
-    for value in subNode.get('involvesAnatomicalRegion', []):
-        relations.setdefault('involves-anatomical-region', []).append(value)
+    # # get "involves anatomical region" relationships
+    # for value in subNode.get('involvesAnatomicalRegion', []):
+    #     relations.setdefault('involves-anatomical-region', []).append(value)
 
-    # get "protocol employs technique" relationships
-    for value in subNode.get('protocolEmploysTechnique', []):
-        relations.setdefault('protocol-employs-technique', []).append(value)
+    # # get "protocol employs technique" relationships
+    # for value in subNode.get('protocolEmploysTechnique', []):
+    #     relations.setdefault('protocol-employs-technique', []).append(value)
 
-    try:
-        updateRecord(ds, recordCache, model, identifier, transform(subNode, description, isDescribedBy, hasExperimentalModality, hasResponsiblePrincipalInvestigator), relationships=relations, links=links)
-    except Exception as e:
-        log.error("Failed to add summary to dataset '{}'".format(ds))
+    record_list = []
+    json_id_list = []
+    
+    # No iteration because there is only one summary.
+    record_list.append(transform(subNode))
+    json_id_list.append("{}".format( 'summary' ))
+
+    if len(record_list):
+        log.info('Creating {} new summary Records'.format(len(record_list)))
+        model = create_model(bf, ds)
+        recordCache['summary'].update(zip(json_id_list, model.create_records(record_list)))
+
+# def addSummaryLinks(bf, ds, recordsCache, subNode):
 
 def addAwards(bf, ds, recordCache, identifier, subNode):
     log.info("Adding awards...")
 
-    model = getModel(bf, ds, 'award', 'Award', schema=[
-        ModelProperty('award_id', 'Award ID', title=True),
-        ModelProperty('title', 'Title'),
-        ModelProperty('description', 'Description'),
-        ModelProperty('principal_investigator', 'Principal Investigator'),
+    def create_model(bf, ds):
+        return getModel(bf, ds, 'award', 'Award', schema=[
+            ModelProperty('award_id', 'Award ID', title=True),
+            ModelProperty('title', 'Title'),
+            ModelProperty('description', 'Description'),
+            ModelProperty('principal_investigator', 'Principal Investigator'),
 
-    ])
+        ])
 
     def transform(awardId):
         r = requests.get(url = u'https://api.federalreporter.nih.gov/v1/projects/search?query=projectNumber:*{}*'.format(awardId))
@@ -960,16 +880,59 @@ def addAwards(bf, ds, recordCache, identifier, subNode):
                 'principal_investigator': None,
             }
 
+    updateRecords(bf,ds,subNode, "award", recordCache,  create_model, transform)
+
+def updateRecords(bf, ds, subNode, model_name, recordCache, model_create_fnc, transform_fnc):
     record_list = []
-    for awardId, _ in subNode.items():
-        record_list.append(transform(awardId))
-        # updateRecord(ds, recordCache, model, awardId, transform(awardId))
+    json_id_list = []
+    for recordId, subNode in subNode.items():
+        record_list.append(transform_fnc(subNode))
+        json_id_list.append("{}".format( recordId ))
 
-    log.info('Creating {} new records'.format(len(record_list)))
     if len(record_list):
-        recs = model.create_records(record_list)
+        log.info('Creating {} new {} Records'.format(len(record_list), model_name))
+        model = model_create_fnc(bf, ds)
+        recordCache[model_name].update(zip(json_id_list, model.create_records(record_list)))
 
-def update_datasets(cfg, method = 'full'):
+# def sync_datasets(cfg, method = 'full'):
+#     log.info('===========================')
+#     log.info('== Deleting old metadata ==')
+#     log.info('===========================')
+#     log.info('')
+
+#     delete_start_time = time()
+
+#     ## Delete the old data in existing dataset for specific models
+#     for dsId, node in oldJson.items():
+#         log.info('Current dataset: {}'.format(dsId))
+
+#         # Get Dataset, or Create dataset with Name=dsId if it does not exist.
+#         ds = getCreateDataset(dsId)
+
+#         # If reset, then clear out all records. Otherwise, only clear out records that were 
+#         # added through this process
+#         if method == 'full':
+#             clearDataset(cfg.bf, ds)
+#             recordCache = {m: {} for m in MODEL_NAMES}
+#         else:
+#             recordCache = cfg.db_client.buildCache(dsId)
+
+#         models = {k: v for k, v in ds.models().items() if k in MODEL_NAMES}
+#         try:
+#             deleteData(ds, models, recordCache, node)
+#         except BlackfynnException:
+#             log.error("Dataset {} failed to update".format(dsId))
+#             failedDatasets.append(dsId)
+#             continue
+#         finally:
+#             cfg.db_client.writeCache(dsId, recordCache)
+
+#     recordCache = cfg.db_client.buildCache(dsId)
+
+#     duration = int((time() - delete_start_time) * 1000)
+#     log.info("Deleted old metadata in {} milliseconds".format(duration))
+
+def update_datasets(cfg, option = 'full'):
     """
     Update all datasets.
     if `reset`: clear and re-add all records. If not `reset`, only delete added items
@@ -981,80 +944,40 @@ def update_datasets(cfg, method = 'full'):
     update_start_time = time()
 
     oldJson = {}
-    if method == 'full':
-        newJson = getJson('full')
-    elif method == 'diff':
-        oldJson, newJson = getJson('diff')
-    else:
-        raise(Exception('Inccorrect method: {}'.format(method)))
+    newJson = getJson('full')
+
+    if option != 'full':
+        # Get specific dataset from JSON
+        ds_info = newJson[option]
+        newJson.clear() 
+        newJson[option] = ds_info
 
     failedDatasets = []
-    if method == 'diff':
-        log.info('===========================')
-        log.info('== Deleting old metadata ==')
-        log.info('===========================')
-        log.info('')
-
-        delete_start_time = time()
-
-        ## Delete the old data in existing dataset for specific models
-        for dsId, node in oldJson.items():
-            log.info('Current dataset: {}'.format(dsId))
-
-            # Get Dataset, or Create dataset with Name=dsId if it does not exist.
-            ds = getCreateDataset(dsId)
-
-            # If reset, then clear out all records. Otherwise, only clear out records that were 
-            # added through this process
-            if method == 'full':
-                clearDataset(cfg.bf, ds)
-                recordCache = {m: {} for m in MODEL_NAMES}
-            else:
-                recordCache = cfg.db_client.buildCache(dsId)
-
-            models = {k: v for k, v in ds.models().items() if k in MODEL_NAMES}
-            try:
-                deleteData(ds, models, recordCache, node)
-            except BlackfynnException:
-                log.error("Dataset {} failed to update".format(dsId))
-                failedDatasets.append(dsId)
-                continue
-            finally:
-                cfg.db_client.writeCache(dsId, recordCache)
-
-        duration = int((time() - delete_start_time) * 1000)
-        log.info("Deleted old metadata in {} milliseconds".format(duration))
-
+       
     log.info('===========================')
     log.info('=== Adding new metadata ===')
     log.info('===========================')
     log.info('')
     new_start_time = time()
 
-    i = 0
     # Iterate over Datasets in JSON file and add metadata records...
     for dsId, node in newJson.items():
-
-        if i==2:
-            break
-        i = i+1
 
         log.info("Creating records for dataset: {}".format(dsId))
 
         # Need to get existing dataset, or create new dataset (in dev)
         ds = getCreateDataset(cfg.bf, dsId)
 
-        # Need to clear dataset records/models if full update and 
-        # set cache
-        if method == 'full':
-            clearDataset(cfg.bf, ds)
-            recordCache = {m: {} for m in MODEL_NAMES}
-        else:
-            recordCache = cfg.db_client.buildCache(dsId)
+        # Need to clear dataset records/models 
+        clearDataset(cfg.bf, ds)
+        recordCache = {m: {} for m in MODEL_NAMES}
 
         # Add data from the JSON file to the BF Dataset
         try:
+            # Create all records
             addData(cfg.bf, ds, dsId, recordCache, node)
+
+            # Create all links between records
             addLinks(cfg.bf, ds, dsId, recordCache, node)
         except BlackfynnException:
             log.error("Dataset {} failed to update".format(dsId))
@@ -1062,25 +985,9 @@ def update_datasets(cfg, method = 'full'):
             continue
         # finally:
             # cfg.db_client.writeCache(dsId, recordCache)
-
-    # # Iterate over Datasets and add linked properties...
-    # i = 0
-    # for dsId, node in newJson.items():
-    #     log.info("Create Links in records for dataset: {}".format(dsId))
-
-    #     if i==2:
-    #         break
-    #     i = i+1
-
-    #     # Need to get existing dataset
-    #     ds = cfg.bf.get_dataset(dsId)
-
-    #     # Add links from the JSON file to the appropriate records as they should exist
-    #     addLinks(cfg.bf, ds, dsId, recordCache, node)
             
 
-
-
+    # Update Dataset Tags by copying TERMS Records
 
 
     # Timing stats
@@ -1089,13 +996,12 @@ def update_datasets(cfg, method = 'full'):
     duration = int((time() - update_start_time) * 1000)
     log.info("Update datasets in {} milliseconds".format(duration))
 
+
+
     # Update dashboard when complete when running in production.
     if cfg.env == 'prod':
         update_sparc_dashboard()
 
     return 
-
-    
-
 
 # %%

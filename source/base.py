@@ -7,6 +7,7 @@ import requests
 from requests.compat import quote_plus
 from boto3.dynamodb.conditions import Key
 from time import sleep
+import json
 
 log = logging.getLogger(__name__)
 
@@ -179,6 +180,17 @@ class DynamoDBClient():
 
 
 ### Helper functions ###
+
+def get_as_list(subNode, key):
+    value = None
+    if key in subNode:
+        if isinstance(subNode.get(key), list):
+            value = subNode.get(key)
+        else:
+            value = [subNode.get(key)]
+    return value
+
+
 def iriLookup(iri, iriCache=None):
     'Retrieve data about a SPARC term'
     skipIri = (
@@ -219,7 +231,90 @@ def iriLookup(iri, iriCache=None):
         return r.json()
     log.error('SciCrunch HTTP Error: %d %s iri= %s', r.status_code, r.reason, iri)
 
+def getFirst(node, name, default=None):
+    try:
+        return node[name][0]
+    except (KeyError, IndexError):
+        return default
 
+### Helper function to check li
+def contains(list, filter):
+    for x in list:
+        if filter(x):
+            return x
+    return False
+
+### Parsing JSON data:
+def getJson(_type):
+    '''Load JSON files containing expired and new metadata'''
+    if _type == 'diff':
+        with open(JSON_METADATA_EXPIRED, 'r') as f1:
+            expired = json.load(f1)
+            log.info("Loaded '{}'".format(JSON_METADATA_EXPIRED))
+        with open(JSON_METADATA_NEW, 'r') as f2:
+            new = json.load(f2)
+            log.info("Loaded '{}'".format(JSON_METADATA_NEW))
+        return expired, new
+    if _type == 'full':
+        with open(JSON_METADATA_FULL, 'r') as f:
+            log.info("Loaded '{}'".format(JSON_METADATA_FULL))
+            data = json.load(f)
+        return data
+    raise Exception("Must use 'diff' or 'full' option")
+
+def get_bf_model(ds, name):
+    """Return the model with name in dataset
+
+        This method return the Blackfynn Model with a particular
+        name for a particular dataset. The method provides a cache
+        to prevent an API call when the model has previously been 
+        loaded
+    """
+
+    if not hasattr(get_bf_model, "models"):
+        log.debug('SETUP MODEL CACHE')
+        model = ds.get_model(name)
+        get_bf_model.models = {name: model}
+        get_bf_model.model_ds = ds.id
+        return model
+    elif get_bf_model.model_ds != ds.id:
+        log.debug('SWITCHING DS')
+        model = ds.get_model(name)
+        get_bf_model.models = {name: model}
+        get_bf_model.model_ds = ds.id
+        return model
+    else:
+        if name in get_bf_model.models:
+            log.debug('RETURN MODEL FROM CACHE')
+            return get_bf_model.models[name]
+        else:
+            log.debug('ADDING MODEL TO CACHE')
+            model = ds.get_model(name)
+            get_bf_model.models.update({name: model})
+            return model
+
+def get_record_by_id(json_id, model, record_cache):
+    """Get Blackfynn Record by its JSON ID
+
+        The JSON_ID should be "RecordName". Record Cache is 
+        cleared out between imports of datasets so only
+        represents a single dataset
+
+        The record_cache should map JSON_ID to Blackfynn_ID
+    """
+    
+    # Because we expect that this exist at this point.
+    if not json_id in record_cache[model.type]:
+        raise(Exception("JSON-ID: {}".format(json_id)))
+
+    # Get the Blackfynn ID, or the Blackfynn Record from cache
+    bf_obj = record_cache[model.type][json_id]
+
+    # Fetch the Record and return
+    if isinstance(bf_obj, str):
+        return model.get(bf_obj)
+    else:
+        return bf_obj
 
 def stripIri(iri):
     'Remove the base URL of an IRI'

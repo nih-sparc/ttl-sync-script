@@ -45,7 +45,7 @@ log = logging.getLogger(__name__)
 def addEntry(output, datasetId):
     "Add a value for output[datasetId] if it doesn't already exist"
     output.setdefault(datasetId,
-        {'Resource':{},'Researcher':{},'Subjects':{},'Protocols':{},'Terms':{},'Samples':{}, 'Awards': {}})
+        {'Resource':{},'Contributor':{},'Researcher':{},'Subjects':{},'Protocols':{},'Terms':{},'Samples':{}, 'Awards': {}})
 
 def parseMeasure(g, node, values):
     for v in g.objects(subject=node):
@@ -149,6 +149,21 @@ def getDatasets(gNew, gDelta, output, iriCache):
                 getAwards(o, datasetId, output)
             populateValue(gDelta, datasetId, output[datasetId], output[datasetId]['Resource'], p, o, iriCache)
 
+def getContributors(gNew, gDelta, output, iriCache):
+    # Iterate over Researchers
+    for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/aboutContributor')):
+        log.info('s:{}'.format(s))
+        log.info('o:{}'.format(o))
+        # m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
+        # datasetId = stripIri(m.group(0).strip())
+        # user = s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
+        # newEntry = {}
+        # log.info(gDelta.predicate_objects(s))
+        for p2, o2 in gDelta.predicate_objects(s):
+            populateValue(gDelta, datasetId, output[datasetId], newEntry, p2, o2, iriCache)
+        if newEntry:
+            output[datasetId]['Contributor'][user] = newEntry
+
 def getResearchers(gNew, gDelta, output, iriCache):
     # Iterate over Researchers
     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/contributorTo')):
@@ -232,7 +247,10 @@ def buildJson(_type):
     iriCache = {}
 
     log.info('Getting datasets...')
-    getDatasets(gNew, gDelta, output, iriCache)
+    # getDatasets(gNew, gDelta, output, iriCache)
+
+    log.info('Getting Contributors...')
+    getContributors(gNew, gDelta, output, iriCache)
 
     log.info('Getting Researchers...')
     getResearchers(gNew, gDelta, output, iriCache)
