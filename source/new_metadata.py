@@ -149,27 +149,27 @@ def getDatasets(gNew, gDelta, output, iriCache):
                 getAwards(o, datasetId, output)
             populateValue(gDelta, datasetId, output[datasetId], output[datasetId]['Resource'], p, o, iriCache)
 
-def getContributors(gNew, gDelta, output, iriCache):
-    # Iterate over Researchers
-    for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/aboutContributor')):
-        log.info('s:{}'.format(s))
-        log.info('o:{}'.format(o))
-        # m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
-        # datasetId = stripIri(m.group(0).strip())
-        # user = s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
-        # newEntry = {}
-        # log.info(gDelta.predicate_objects(s))
-        for p2, o2 in gDelta.predicate_objects(s):
-            populateValue(gDelta, datasetId, output[datasetId], newEntry, p2, o2, iriCache)
-        if newEntry:
-            output[datasetId]['Contributor'][user] = newEntry
+# def getContributors(gNew, gDelta, output, iriCache):
+#     # Iterate over Researchers
+#     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/aboutContributor')):
+#         log.info('s:{}'.format(s))
+#         log.info('o:{}'.format(o))
+#         # m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
+#         # datasetId = stripIri(m.group(0).strip())
+#         # user = s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
+#         # newEntry = {}
+#         # log.info(gDelta.predicate_objects(s))
+#         for p2, o2 in gDelta.predicate_objects(s):
+#             populateValue(gDelta, datasetId, output[datasetId], newEntry, p2, o2, iriCache)
+#         if newEntry:
+#             output[datasetId]['Contributor'][user] = newEntry
 
 def getResearchers(gNew, gDelta, output, iriCache):
     # Iterate over Researchers
     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/contributorTo')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
         datasetId = stripIri(m.group(0).strip())
-        user = s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
+        user = s #s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
         newEntry = {}
         for p2, o2 in gDelta.predicate_objects(s):
             populateValue(gDelta, datasetId, output[datasetId], newEntry, p2, o2, iriCache)
@@ -213,7 +213,9 @@ def getProtocols(gNew, gDelta, output, iriCache):
 def getAwards(awardIdURI, dsId, output):
     # Iterate over awards
     awardId = stripIri(awardIdURI)
-    output[dsId]['Awards'][awardId] = dsId
+    output[dsId]['Awards'][awardId] = {
+        'awardId': awardId
+    }
 
 # TODO: make an 'Organization' model using ror.org API
 
@@ -247,10 +249,10 @@ def buildJson(_type):
     iriCache = {}
 
     log.info('Getting datasets...')
-    # getDatasets(gNew, gDelta, output, iriCache)
+    getDatasets(gNew, gDelta, output, iriCache)
 
-    log.info('Getting Contributors...')
-    getContributors(gNew, gDelta, output, iriCache)
+    # log.info('Getting Contributors...')
+    # getContributors(gNew, gDelta, output, iriCache)
 
     log.info('Getting Researchers...')
     getResearchers(gNew, gDelta, output, iriCache)

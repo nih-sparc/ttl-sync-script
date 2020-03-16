@@ -41,7 +41,8 @@ arrayProps = [
     'isAboutParticipant',
     'hasContactPerson',
     'hasResponsiblePrincipalInvestigator',
-    'raw/wasExtractedFromAnatomicalRegion']
+    'raw/wasExtractedFromAnatomicalRegion',
+    'description']
 
 ### AWS ###
 class SSMClient():
@@ -181,6 +182,60 @@ class DynamoDBClient():
 
 ### Helper functions ###
 
+def unitValue(node, name, model_unit = 'None'):
+    """Method that returns a value that is associated with a unit
+
+    Method does the following:
+    1) Checks for two types of unitValue representations
+        a) {value: [value], unit: unit}
+        b) "value unit"
+    2) Checks if the unit matches the unit of the model it will be added to.
+    3) Parses the value to a float and return.
+
+    Parameters
+    ----------
+    node: {}
+        Node with representation of record entity
+    name: str
+        Name of the property 
+    model_unit: str, optional
+        Unit of the property as defined in Model Schema
+
+    """
+    
+    value = None
+    unit = None
+
+    # Check if node name exists
+    if not name in node:
+        log.info('No value for {}'.format(name))
+        return None
+
+    # Check is coded as unit or string
+    if isinstance(node[name], dict):
+        value = node[name]['value'][0]
+        unit = node[name]['unit']
+    else:
+        # assume string is "value unit"
+        v = node[name].split()
+        value = v[0]
+        if len(v)>1:
+            unit = v[1]
+
+    # Validate that unit matches Model Unit.
+    if unit != model_unit:
+        log.warning('Unit mismatch between record and model {} - {}'.format(unit, model_unit))
+
+    # try converting to float
+    try:
+        value = float(value)
+    except:
+        log.warning('Cannot cast as Numeric: {} - {}'.format(name,value))
+        value = None
+
+    # Return value
+    return value
+
 def get_as_list(subNode, key):
     value = None
     if key in subNode:
@@ -289,9 +344,14 @@ def get_bf_model(ds, name):
             return get_bf_model.models[name]
         else:
             log.debug('ADDING MODEL TO CACHE')
-            model = ds.get_model(name)
-            get_bf_model.models.update({name: model})
-            return model
+            try:
+                # Get model from platform and add to cache
+                model = ds.get_model(name)
+                get_bf_model.models.update({name: model})
+                return model
+            except:
+                # Model does not exist on the platform
+                return None
 
 def get_record_by_id(json_id, model, record_cache):
     """Get Blackfynn Record by its JSON ID
@@ -325,11 +385,11 @@ def stripIri(iri):
         'http://uri.interlex.org/temp/uris/awards/',
         'http://uri.interlex.org/temp/uris/',
         'https://api.blackfynn.io/users/',
-        'https://api.blackfynn.io/datasets/',
 
         'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
         'http://www.w3.org/2000/01/rdf-schema#',
         'http://purl.org/dc/elements/1.1/'
+
         )
 
     for s in strips:

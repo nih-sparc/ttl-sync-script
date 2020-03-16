@@ -75,18 +75,38 @@ class Configs(object):
             log.info('SETTING UP CONFIG FOR: {}'.format(env))
 
             self.env = "prod"
-            self.working_directory = "/tmp"
-            self.last_updated = ssm.get_parameter(Name=ssm_path + "last_updated")
+            self.last_updated = None
+            self.working_directory = os.getcwd()
             blackfynn_host="https://api.blackfynn.io"
-            blackfynn_api_token = ssm.get_parameter(Name=ssm_path + "blackfynn-api-key", WithDecryption=True)["Parameter"]["Value"]
-            blackfynn_api_secret = ssm.get_parameter(Name=ssm_path + "blackfynn-api-secret", WithDecryption=True)["Parameter"]["Value"]
+            blackfynn_api_token = os.environ.get("BLACKFYNN_API_TOKEN")
+            blackfynn_api_secret = os.environ.get("BLACKFYNN_API_SECRET")
+            
+            self.ssm_path = "/{}/sparc-tools/".format(env)
+            self.ssm = SSMClient(aws_region, "dev", self.ssm_path, "http://localhost:4583")
+
+            # self.session = boto3.Session(region_name = aws_region)
             self.bf = Blackfynn( api_token=blackfynn_api_token, 
                         api_secret=blackfynn_api_secret, 
                         host=blackfynn_host)
-            self.session = boto3.Session(region_name=aws_region)
-            self.ssm = self.session.client("ssm", aws_region, env, table_partition_key, dynamodb_endpoint)
-            self.ssm_path = "/{}/sparc-tools/".format(environment_name)
-            self.db_client = DynamoDBClient(self, aws_region, env, table_partition_key, dynamodb_endpoint,table_id,table_sort_key)
+
+            self.db_client =  DynamoDBClient(aws_region, env, table_partition_key, "http://localhost:4569",table_id, table_sort_key)
+
+
+
+
+            # self.env = "prod"
+            # self.working_directory = "/tmp"
+            # self.last_updated = ssm.get_parameter(Name=ssm_path + "last_updated")
+            # blackfynn_host="https://api.blackfynn.io"
+            # blackfynn_api_token = ssm.get_parameter(Name=ssm_path + "blackfynn-api-key", WithDecryption=True)["Parameter"]["Value"]
+            # blackfynn_api_secret = ssm.get_parameter(Name=ssm_path + "blackfynn-api-secret", WithDecryption=True)["Parameter"]["Value"]
+            # self.bf = Blackfynn( api_token=blackfynn_api_token, 
+            #             api_secret=blackfynn_api_secret, 
+            #             host=blackfynn_host)
+            # self.session = boto3.Session(region_name=aws_region)
+            # self.ssm = self.session.client("ssm", aws_region, env, table_partition_key, dynamodb_endpoint)
+            # self.ssm_path = "/{}/sparc-tools/".format(environment_name)
+            # self.db_client = DynamoDBClient(self, aws_region, env, table_partition_key, dynamodb_endpoint,table_id,table_sort_key)
 
         else:
             raise(Exception('Incorrect input argument'))

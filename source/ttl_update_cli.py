@@ -35,13 +35,13 @@ def to_json(method):
 
 @click.command()
 @click.argument('env', nargs=1)
-@click.argument('id', nargs=1)
+@click.argument('id', nargs=-1)
 def update(env, id=None):
     if env in ['prod', 'dev']:
         log.info('Starting UPDATE for: {}'.format(env))
         cfg = Configs(env)
         if id:
-            out = update_datasets(cfg, id)
+            out = update_datasets(cfg, id[0])
         else:
             out = update_datasets(cfg, 'full')
     else:

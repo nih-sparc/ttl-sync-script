@@ -64,6 +64,7 @@ def clearDataset(bf, dataset):
             
     log.info("Cleared dataset '{}'".format(dataset.name))
 
+
 def getModel(bf, ds, name, displayName, schema=None, linked=None):
     '''create a model if it doesn't exist,
     or retrieve it and update its schema properties'''
@@ -71,36 +72,32 @@ def getModel(bf, ds, name, displayName, schema=None, linked=None):
         schema = []
     if linked is None:
         linked = []
+
+    # Try to get model or create model if not exist.
+    model = None
     try:
         model = ds.get_model(name)
-        try:
-            for s in schema:
-                s.id = model.schema[s.name].id
-            newLinks = [l for l in linked if l.name not in model.linked]
-            model.schema = {s.name: s for s in schema}
-            model.update()
-            if newLinks:
-                try:
-                    model.add_linked_properties(newLinks)
-                except Exception as e:
-                    log.info("Error adding linked properties '{}' to dataset '{}': {}".format(newLinks, ds.name, e))
-        except Exception as e:
-            log.info("Error updating model '{}' with schema '{}' to dataset '{}': {}".format(model, schema, ds.name, e))
+        if schema:
+            raise(Exception("Trying to update schema of existing model"))
     except HTTPError:
-        #log.info("model '{}' not found in dataset '{}': trying to create it".format(name, ds.name))
-        try:
+        if schema:
             model = ds.create_model(name, displayName, schema=schema)
-            if linked:
-                model.add_linked_properties(linked)
-        except Exception as e:
-            log.info("Error creating model '{}' with schema '{}' in dataset '{}': {}".format(model, schema, ds.name, e))
+        else:
+            raise(Exception("Unsuccessful in creating new model --> no schema"))
+
+    # Check if links contain linked properties that don't exist and add if the case.
+    newLinks = [l for l in linked if l.name not in model.linked]
+    if newLinks:
+        log.info("Has new Property Links for: {}".format(name))
+        model.add_linked_properties(newLinks)
+
     return model
 
 #%% [markdown]
 ### Update the SPARC Dashboard
 # This adds an entry to the sparc dashboard for this update run
 #%%
-def update_sparc_dashboard():
-    sparc_ds = getCreateDataset(SPARC_DATASET_ID)
+def update_sparc_dashboard(bf):
+    sparc_ds = getCreateDataset(bf, SPARC_DATASET_ID)
     model = sparc_ds.get_model('Update_Run')
     model.create_record({'name':'TTL Update', 'status': DT.now()})
