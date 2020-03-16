@@ -38,7 +38,7 @@ log = logging.getLogger(__name__)
 
 ### ENTRY POINT
 
-def update_datasets(cfg, option = 'full'):
+def update_datasets(cfg, option = 'full', resume=None):
     """
     Update all datasets.
     if `reset`: clear and re-add all records. If not `reset`, only delete added items
@@ -66,8 +66,20 @@ def update_datasets(cfg, option = 'full'):
     log.info('')
     new_start_time = time()
 
+    is_resuming = True
+
+    log.info('RESUME = {}'.format(resume))
+
     # Iterate over Datasets in JSON file and add metadata records...
     for dsId, node in newJson.items():
+
+        if resume and is_resuming:
+            if dsId != resume:
+                log.info('Skipping dataset: {}'.format(dsId))
+                continue
+            else:
+                is_resuming = False
+
 
         log.info("Creating records for dataset: {}".format(dsId))
 

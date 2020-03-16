@@ -47,7 +47,20 @@ def update(env, id=None):
     else:
         log.warning('Incorrect argument (''prod'', ''dev'')')
 
+@click.command()
+@click.argument('env', nargs=1)
+@click.argument('id', nargs=1)
+def resume_update(env, id=None):
+    if env in ['prod', 'dev']:
+        log.info('Starting UPDATE for: {}'.format(env))
+        cfg = Configs(env)
+        out = update_datasets(cfg, resume=id)
+
+    else:
+        log.warning('Incorrect argument (''prod'', ''dev'')')
+
 
 cli.add_command(get_ttl)
 cli.add_command(to_json)
 cli.add_command(update)
+cli.add_command(resume_update)
