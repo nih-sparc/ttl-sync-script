@@ -63,4 +63,4 @@ def resume_update(env, id=None):
 cli.add_command(get_ttl)
 cli.add_command(to_json)
 cli.add_command(update)
-cli.add_command(resume_update)get_create_datasetclear_datasetadd_data
+cli.add_command(resume_update)
