@@ -140,10 +140,10 @@ def update_datasets(cfg, option = 'full', resume=None):
 
 ### CORE METHODS
 
-def update_records(bf, ds, subNode, model_name, recordCache, model_create_fnc, transform_fnc):
+def update_records(bf, ds, sub_node, model_name, record_cache, model_create_fnc, transform_fnc):
     """Creates records for particular Model in Dataset
 
-    This method takes the subNode for a particular model in a dataset and create the records.
+    This method takes the sub_node for a particular model in a dataset and create the records.
     
     Parameters
     ----------
@@ -151,8 +151,8 @@ def update_records(bf, ds, subNode, model_name, recordCache, model_create_fnc, t
         Blackfynn session
     ds: BF_Dataset
         Dataset that contains the records
-    subNode: Dict
-        JSON subnode for specific model in specific dataset
+    sub_node: Dict
+        JSON sub_node for specific model in specific dataset
     model_name: str
         Name of the current model
     recordCache: Dict
@@ -166,16 +166,16 @@ def update_records(bf, ds, subNode, model_name, recordCache, model_create_fnc, t
 
     record_list = []
     json_id_list = []
-    for recordId, subNode in subNode.items():
-        record_list.append(transform_fnc(recordId, subNode))
-        json_id_list.append("{}".format( recordId ))
+    for record_id, sub_node in sub_node.items():
+        record_list.append(transform_fnc(record_id, sub_node))
+        json_id_list.append("{}".format( record_id ))
 
     model = model_create_fnc(bf, ds)
     if len(record_list):
         log.info('Creating {} new {} Records'.format(len(record_list), model_name))
-        recordCache[model_name].update(zip(json_id_list, model.create_records(record_list)))
+        record_cache[model_name].update(zip(json_id_list, model.create_records(record_list)))
 
-def add_data(bf, ds, dsId, recordCache, node):
+def add_data(bf, ds, dsId, record_cache, node):
     """Iterate over specific models and add records
 
     This method is called as the core method to add records to datasets.
@@ -191,7 +191,7 @@ def add_data(bf, ds, dsId, recordCache, node):
     recordCache: Dict
         Map of all ids to records in current dataset
     node: Dict
-        JSON subNode for dataset
+        JSON sub_node for dataset
 
     """
 
@@ -199,15 +199,15 @@ def add_data(bf, ds, dsId, recordCache, node):
     models = ds.models()
 
     # Adding all records without setting linked properties and relationships
-    add_protocols(bf, ds, recordCache, node['Protocols'])
-    add_terms(bf, ds, recordCache, node['Terms'])
-    add_researchers(bf, ds, recordCache, node['Researcher'])
-    add_subjects(bf, ds, recordCache, node['Subjects'])
-    add_samples(bf, ds, recordCache, node['Samples'])
-    add_awards(bf, ds, recordCache, node['Awards'])
-    add_summary(bf, ds, recordCache, node['Resource'])
+    add_protocols(bf, ds, record_cache, node['Protocols'])
+    add_terms(bf, ds, record_cache, node['Terms'])
+    add_researchers(bf, ds, record_cache, node['Researcher'])
+    add_subjects(bf, ds, record_cache, node['Subjects'])
+    add_samples(bf, ds, record_cache, node['Samples'])
+    add_awards(bf, ds, record_cache, node['Awards'])
+    add_summary(bf, ds, record_cache, node['Resource'])
 
-def add_links(bf, ds, dsId, recordCache, node):
+def add_links(bf, ds, dsId, record_cache, node):
     """Iterate over specific models and add property links and relationships
 
     This method is called as the core method to add property links and relationships to records.
@@ -223,16 +223,16 @@ def add_links(bf, ds, dsId, recordCache, node):
     recordCache: Dict
         Map of all ids to records in current dataset
     node: Dict
-        JSON subNode for dataset
+        JSON sub_node for dataset
 
     """
     
     # Adding all linked properties and relationships to records
-    add_summary_links(bf,ds, recordCache, node['Resource'])
-    add_subject_links(bf, ds, recordCache, node['Subjects'])
-    add_sample_links(bf,ds, recordCache, node['Samples'])
+    add_summary_links(bf,ds, record_cache, node['Resource'])
+    add_subject_links(bf, ds, record_cache, node['Subjects'])
+    add_sample_links(bf,ds, record_cache, node['Samples'])
 
-def add_random_terms(ds, label, recordCache):
+def add_random_terms(ds, label, record_cache):
     """Adding a record for a term that is not defined in TTL
 
     Most terms are defined in the TTL file as entities. However
@@ -259,10 +259,10 @@ def add_random_terms(ds, label, recordCache):
         add_random_terms.model_ds = ds.id
  
     record = add_random_terms.term_model.create_record({'label': label})
-    recordCache['term'][label] = record
+    record_cache['term'][label] = record
     return record
 
-def add_record_links(ds, recordCache, model, record, links):
+def add_record_links(ds, record_cache, model, record, links):
     """Populate linked Properties for single record
 
     This method populates linked properties in a record provided to method.
@@ -305,14 +305,14 @@ def add_record_links(ds, recordCache, model, record, links):
 
         for item in valueList:
             # Check if value is in the record cache
-            if item in recordCache[targetType]:
+            if item in record_cache[targetType]:
                 # Record in cache --> exists in platform as a record
-                linkedRec = recordCache[targetType][item]
+                linkedRec = record_cache[targetType][item]
             else:
                 # Record not in cache --> check if term --> if so, add new term,
                 # if not --> throw warning and don't link entry
                 if targetType == 'term':
-                    linkedRec = add_random_terms(ds, item, recordCache)
+                    linkedRec = add_random_terms(ds, item, record_cache)
                 else:
                     log.warning('Unable to link to non-existing record {}'.format(targetType))
                     continue
@@ -324,7 +324,7 @@ def add_record_links(ds, recordCache, model, record, links):
                 log.error("Failed to add linked value '{}'='{}' to record {} with error '{}'".format(name, value, record, str(e)))
                 raise BlackfynnException(e)
 
-def add_record_relationships(ds, recordCache, record, relationships):
+def add_record_relationships(ds, record_cache, record, relationships):
     
     log.info('Adding Record Relationships for {}'.format(record.id))
     # Iterate over all relationships in a record
@@ -348,10 +348,10 @@ def add_record_relationships(ds, recordCache, record, relationships):
         for item in valueList:
 
             # Lookup record in cache
-            if item in recordCache[targetModel]:
-                targetRecordList.append(recordCache[targetModel][item])
+            if item in record_cache[targetModel]:
+                targetRecordList.append(record_cache[targetModel][item])
             elif targetModel == 'term':
-                linkedRec = add_random_terms(ds, item, recordCache)
+                linkedRec = add_random_terms(ds, item, record_cache)
                 targetRecordList.append(linkedRec)
             else:
                 log.warning('Unable to relate to non-existing record {}'.format(targetModel))
@@ -363,7 +363,7 @@ def add_record_relationships(ds, recordCache, record, relationships):
 
 ### MODEL SPECIFIC METHODS
 
-def add_protocols(bf, ds, recordCache, subNode):
+def add_protocols(bf, ds, record_cache, sub_node):
     log.info("Adding protocols...")
 
     def create_model(bf, ds):
@@ -378,19 +378,19 @@ def add_protocols(bf, ds, recordCache, subNode):
             ModelProperty('hasNumberOfProtcurAnnotations', 'Number of Protcur Annotations')
         ])
 
-    def transform(recordId, subNode):
+    def transform(record_id, sub_node):
         return {
-             'label': subNode.get('label', '(no label)'),
-             'url': recordId, #subNode.get('http://www.w3.org/2002/07/owl#sameAs'),
-             'date': subNode.get('date'),
-             'publisher': subNode.get('publisher'),
-             'protocolHasNumberOfSteps': subNode.get('protocolHasNumberOfSteps'),
-             'hasNumberOfProtcurAnnotations': subNode.get('hasNumberOfProtcurAnnotations')
+             'label': sub_node.get('label', '(no label)'),
+             'url': record_id, #sub_node.get('http://www.w3.org/2002/07/owl#sameAs'),
+             'date': sub_node.get('date'),
+             'publisher': sub_node.get('publisher'),
+             'protocolHasNumberOfSteps': sub_node.get('protocolHasNumberOfSteps'),
+             'hasNumberOfProtcurAnnotations': sub_node.get('hasNumberOfProtcurAnnotations')
         }
 
-    update_records(bf, ds, subNode, "protocol", recordCache,  create_model, transform)
+    update_records(bf, ds, sub_node, "protocol", record_cache,  create_model, transform)
 
-def add_terms(bf, ds, recordCache, subNode):
+def add_terms(bf, ds, record_cache, sub_node):
     log.info("Adding terms...")
 
     def create_model(bf, ds):
@@ -410,7 +410,7 @@ def add_terms(bf, ds, recordCache, subNode):
             ]
         )
         
-    def transform(recordId, term):
+    def transform(record_id, term):
         return {
             'label': get_first(term, 'labels', '(no label)'),
             'curie': term.get('curie'),
@@ -422,9 +422,9 @@ def add_terms(bf, ds, recordCache, subNode):
             'iri': term.get('iri'),
         }
 
-    update_records(bf, ds, subNode, "term", recordCache,  create_model, transform)
+    update_records(bf, ds, sub_node, "term", record_cache,  create_model, transform)
 
-def add_researchers(bf, ds, recordCache, subNode):
+def add_researchers(bf, ds, record_cache, sub_node):
     log.info("Adding researchers...")
 
     def create_model(bf, ds):
@@ -440,21 +440,21 @@ def add_researchers(bf, ds, recordCache, subNode):
                     data_type=str, format='url'))
         ])
 
-    def transform(recordId, subNode):
+    def transform(record_id, sub_node):
         return {
-            'lastName': subNode.get('lastName', '(no label)'),
-            'firstName': subNode.get('firstName'),
-            'middleName': subNode.get('middleName'),
-            'hasAffiliation': subNode.get('hasAffiliation'),
-            'hasRole': subNode.get('hasRole'),
-            'hasORCIDId': subNode.get('hasORCIDId')
+            'lastName': sub_node.get('lastName', '(no label)'),
+            'firstName': sub_node.get('firstName'),
+            'middleName': sub_node.get('middleName'),
+            'hasAffiliation': sub_node.get('hasAffiliation'),
+            'hasRole': sub_node.get('hasRole'),
+            'hasORCIDId': sub_node.get('hasORCIDId')
         }
 
-    update_records(bf,ds,subNode, "researcher", recordCache,  create_model, transform)
+    update_records(bf,ds,sub_node, "researcher", record_cache,  create_model, transform)
 
-def add_subjects(bf, ds, recordCache, subNode):
+def add_subjects(bf, ds, record_cache, sub_node):
     log.info("Adding subjects...")
-    termModel = get_bf_model(ds, 'term')
+    term_model = get_bf_model(ds, 'term')
 
     ## Define Model Generators
     def create_human_model(bf, ds):
@@ -477,9 +477,9 @@ def add_subjects(bf, ds, recordCache, subNode):
                 ModelProperty('raw/involvesAnatomicalRegion', 'Anatomical region involved'),
                 ModelProperty('wasAdministeredAnesthesia', 'Anesthesia administered'),
             ], linked=[
-                LinkedModelProperty('hasBiologicalSex', termModel, 'Biological sex'), # list (this is a bug)
-                LinkedModelProperty('hasAgeCategory', termModel, 'Age category'),
-                LinkedModelProperty('specimenHasIdentifier', termModel, 'Identifier'),
+                LinkedModelProperty('hasBiologicalSex', term_model, 'Biological sex'), # list (this is a bug)
+                LinkedModelProperty('hasAgeCategory', term_model, 'Age category'),
+                LinkedModelProperty('specimenHasIdentifier', term_model, 'Identifier'),
             ]
             )
 
@@ -506,49 +506,49 @@ def add_subjects(bf, ds, recordCache, subNode):
                 ModelProperty('raw/involvesAnatomicalRegion', 'Anatomical region involved'),
                 ModelProperty('wasAdministeredAnesthesia', 'Anesthesia administered'),
             ], linked=[
-                LinkedModelProperty('animalSubjectIsOfSpecies', termModel, 'Animal species'),
-                LinkedModelProperty('animalSubjectIsOfStrain', termModel, 'Animal strain'),
-                LinkedModelProperty('hasBiologicalSex', termModel, 'Biological sex'), # list (this is a bug)
-                LinkedModelProperty('hasAgeCategory', termModel, 'Age category'),
-                LinkedModelProperty('specimenHasIdentifier', termModel, 'Identifier'),
+                LinkedModelProperty('animalSubjectIsOfSpecies', term_model, 'Animal species'),
+                LinkedModelProperty('animalSubjectIsOfStrain', term_model, 'Animal strain'),
+                LinkedModelProperty('hasBiologicalSex', term_model, 'Biological sex'), # list (this is a bug)
+                LinkedModelProperty('hasAgeCategory', term_model, 'Age category'),
+                LinkedModelProperty('specimenHasIdentifier', term_model, 'Identifier'),
             ])
 
     ## Define Transform methods
-    def transform_human(subNode, localId):
+    def transform_human(sub_node, local_id):
         vals = {
-            'localId': localId,
-            'localExecutionNumber': subNode.get('localExecutionNumber'),
-            'subjectHasWeight': parse_unit_value(subNode, 'subjectHasWeight', 'kg'),
-            'subjectHasHeight': parse_unit_value(subNode, 'subjectHasHeight'),
-            'hasAge': parse_unit_value(subNode, 'hasAge', 's'),
-            'spatialLocationOfModulator': subNode.get('spatialLocationOfModulator'),
-            'stimulatorUtilized': subNode.get('stimulatorUtilized'),
-            'hasAssignedGroup': subNode.get('hasAssignedGroup'),
-            'providerNote': subNode.get('providerNote'),
-            'raw/involvesAnatomicalRegion': subNode.get('raw/involvesAnatomicalRegion'),
-            'hasGenotype': subNode.get('hasGenotype'),
-            'wasAdministeredAnesthesia': subNode.get('wasAdministeredAnesthesia')
+            'localId': local_id,
+            'localExecutionNumber': sub_node.get('localExecutionNumber'),
+            'subjectHasWeight': parse_unit_value(sub_node, 'subjectHasWeight', 'kg'),
+            'subjectHasHeight': parse_unit_value(sub_node, 'subjectHasHeight'),
+            'hasAge': parse_unit_value(sub_node, 'hasAge', 's'),
+            'spatialLocationOfModulator': sub_node.get('spatialLocationOfModulator'),
+            'stimulatorUtilized': sub_node.get('stimulatorUtilized'),
+            'hasAssignedGroup': sub_node.get('hasAssignedGroup'),
+            'providerNote': sub_node.get('providerNote'),
+            'raw/involvesAnatomicalRegion': sub_node.get('raw/involvesAnatomicalRegion'),
+            'hasGenotype': sub_node.get('hasGenotype'),
+            'wasAdministeredAnesthesia': sub_node.get('wasAdministeredAnesthesia')
         }
 
         return vals
     
-    def transform_animal(subNode, localId):
+    def transform_animal(sub_node, local_id):
         vals = {
-            'localId': localId,
-            'localExecutionNumber': subNode.get('localExecutionNumber'),
-            'hasAge': parse_unit_value(subNode, 'hasAge', 's'),
-            'spatialLocationOfModulator': subNode.get('spatialLocationOfModulator'),
-            'stimulatorUtilized': subNode.get('stimulatorUtilized'),
-            'hasAssignedGroup': subNode.get('hasAssignedGroup'),
-            'providerNote': subNode.get('providerNote'),
-            'raw/involvesAnatomicalRegion': subNode.get('raw/involvesAnatomicalRegion'),
-            'hasGenotype': subNode.get('hasGenotype'),
-            'animalSubjectHasWeight': parse_unit_value(subNode, 'animalSubjectHasWeight'),
-            'wasAdministeredAnesthesia': subNode.get('wasAdministeredAnesthesia')
+            'localId': local_id,
+            'localExecutionNumber': sub_node.get('localExecutionNumber'),
+            'hasAge': parse_unit_value(sub_node, 'hasAge', 's'),
+            'spatialLocationOfModulator': sub_node.get('spatialLocationOfModulator'),
+            'stimulatorUtilized': sub_node.get('stimulatorUtilized'),
+            'hasAssignedGroup': sub_node.get('hasAssignedGroup'),
+            'providerNote': sub_node.get('providerNote'),
+            'raw/involvesAnatomicalRegion': sub_node.get('raw/involvesAnatomicalRegion'),
+            'hasGenotype': sub_node.get('hasGenotype'),
+            'animalSubjectHasWeight': parse_unit_value(sub_node, 'animalSubjectHasWeight'),
+            'wasAdministeredAnesthesia': sub_node.get('wasAdministeredAnesthesia')
         }
 
         try:
-            vals['protocolExecutionDate'] = [DT.strptime(x, '%m-%d-%y') for x in subNode['protocolExecutionDate']]
+            vals['protocolExecutionDate'] = [DT.strptime(x, '%m-%d-%y') for x in sub_node['protocolExecutionDate']]
         except (ValueError, KeyError):
             # date is either not given or formatted wrong
             vals['protocolExecutionDate'] = None
@@ -565,30 +565,30 @@ def add_subjects(bf, ds, recordCache, subNode):
     animal_recs = None
 
     # Iterate over all subjects in a single dataset
-    for subjId, subjNode in subNode.items():
-        subtype = subNode.get('animalSubjectIsOfSpecies')
+    for subj_id, subj_node in sub_node.items():
+        subtype = sub_node.get('animalSubjectIsOfSpecies')
         if subtype == 'homo sapiens':
-            human_record_list.append(transform_human(subjNode, subjId))
-            human_json_id_list.append("{}".format(subjId))
+            human_record_list.append(transform_human(subj_node, subj_id))
+            human_json_id_list.append("{}".format(subj_id))
         else:
-            animal_record_list.append(transform_animal(subjNode, subjId))
-            animal_json_id_list.append("{}".format( subjId))
+            animal_record_list.append(transform_animal(subj_node, subj_id))
+            animal_json_id_list.append("{}".format( subj_id))
     
     ## Create records
     if len(human_record_list) > 0:
         log.info('Creating {} new human_subject Records'.format(len(human_record_list)))
         human_model = create_human_model(bf, ds)
-        recordCache['human_subject'].update(zip(human_json_id_list,human_model.create_records(human_record_list)))
+        record_cache['human_subject'].update(zip(human_json_id_list,human_model.create_records(human_record_list)))
 
     elif len(animal_record_list) > 0:
         log.info('Creating {} new animal_subject Records'.format(len(animal_record_list)))
         animal_model = create_animal_model(bf, ds)
-        recordCache['animal_subject'].update(zip(animal_json_id_list,animal_model.create_records(animal_record_list)))
+        record_cache['animal_subject'].update(zip(animal_json_id_list,animal_model.create_records(animal_record_list)))
 
-def add_subject_links(bf, ds, recordCache, subNode): 
+def add_subject_links(bf, ds, record_cache, sub_node): 
 
     model = None
-    subtype = subNode.get('animalSubjectIsOfSpecies')
+    subtype = sub_node.get('animalSubjectIsOfSpecies')
     try:
         if subtype == 'homo sapiens':
             model = get_bf_model(ds, 'human_subject')
@@ -599,36 +599,36 @@ def add_subject_links(bf, ds, recordCache, subNode):
         return
 
 
-    def transform_human(subNode, localId):
+    def transform_human(sub_node, localId):
         links = {
-            'hasBiologicalSex': subNode.get('hasBiologicalSex'),
-            'hasAgeCategory': subNode.get('hasAgeCategory'),
-            'specimenHasIdentifier':subNode.get('specimenHasIdentifier')
+            'hasBiologicalSex': sub_node.get('hasBiologicalSex'),
+            'hasAgeCategory': sub_node.get('hasAgeCategory'),
+            'specimenHasIdentifier':sub_node.get('specimenHasIdentifier')
         }
         return links
 
-    def transform_animal(subNode, localId):
+    def transform_animal(sub_node, localId):
         links = {
-            'animalSubjectIsOfSpecies': subNode.get('animalSubjectIsOfSpecies'),
-            'animalSubjectIsOfStrain': subNode.get('animalSubjectIsOfStrain'),
-            'hasBiologicalSex': subNode.get('hasBiologicalSex'),
-            'hasAgeCategory': subNode.get('hasAgeCategory'),
-            'specimenHasIdentifier':subNode.get('specimenHasIdentifier')
+            'animalSubjectIsOfSpecies': sub_node.get('animalSubjectIsOfSpecies'),
+            'animalSubjectIsOfStrain': sub_node.get('animalSubjectIsOfStrain'),
+            'hasBiologicalSex': sub_node.get('hasBiologicalSex'),
+            'hasAgeCategory': sub_node.get('hasAgeCategory'),
+            'specimenHasIdentifier':sub_node.get('specimenHasIdentifier')
         }
         return links
 
     # Iterate over multiple subject records, single dataset
-    for subjectId, subjNode in subNode.items():
-        record = get_record_by_id(subjectId, model, recordCache)
+    for subj_id, subj_node in sub_node.items():
+        record = get_record_by_id(subj_id, model, record_cache)
 
         if subtype == 'homo sapiens':
-            links = transform_human(subjNode, subjectId)
+            links = transform_human(subj_node, subj_id)
         else:
-            links = transform_animal(subjNode, subjectId)
+            links = transform_animal(subj_node, subj_id)
 
-        add_record_links(ds, recordCache, model, record, links)
+        add_record_links(ds, record_cache, model, record, links)
 
-def add_samples(bf, ds, recordCache, subNode):
+def add_samples(bf, ds, record_cache, sub_node):
     log.info("Adding samples to dataset: {}".format(ds.id))
 
     def create_sample_model(bf, ds):
@@ -651,20 +651,20 @@ def add_samples(bf, ds, recordCache, subNode):
                     data_type=str, multi_select=True)), # list
             ])
 
-    def transform(recordId,subNode):
+    def transform(record_id,sub_node):
         return {
-            'localId': subNode.get('localId', '(no label)'),
-            'description': get_first(subNode, 'description'),
-            'hasAssignedGroup': subNode.get('hasAssignedGroup'),
-            'hasDigitalArtifactThatIsAboutIt': subNode.get('hasDigitalArtifactThatIsAboutIt'),
-            'label': subNode.get('label'),
-            'localExecutionNumber': subNode.get('localExecutionNumber'),
-            'providerNote': subNode.get('providerNote')
+            'localId': sub_node.get('localId', '(no label)'),
+            'description': get_first(sub_node, 'description'),
+            'hasAssignedGroup': sub_node.get('hasAssignedGroup'),
+            'hasDigitalArtifactThatIsAboutIt': sub_node.get('hasDigitalArtifactThatIsAboutIt'),
+            'label': sub_node.get('label'),
+            'localExecutionNumber': sub_node.get('localExecutionNumber'),
+            'providerNote': sub_node.get('providerNote')
         }
 
-    update_records(bf,ds,subNode, "sample", recordCache,  create_sample_model, transform)
+    update_records(bf,ds,sub_node, "sample", record_cache,  create_sample_model, transform)
 
-def add_sample_links(bf, ds, recordCache, subNode):
+def add_sample_links(bf, ds, record_cache, sub_node):
 
     # Skip if Model is not defined.
     if get_bf_model(ds, 'sample') is None:
@@ -692,15 +692,15 @@ def add_sample_links(bf, ds, recordCache, subNode):
                 LinkedModelProperty('wasDerivedFromSubject', subModel, 'Derived from subject')
             ])
 
-    def transform_sample(subNode):
-        subjectId = None
-        if 'wasDerivedFromSubject' in subNode:
+    def transform_sample(sub_node):
+        subj_id = None
+        if 'wasDerivedFromSubject' in sub_node:
             regex = re.compile(r'.*/subjects/(.+)')
-            subjectId = regex.match(subNode['wasDerivedFromSubject']).group(1)
+            subj_id = regex.match(sub_node['wasDerivedFromSubject']).group(1)
 
         links = {
-            'wasDerivedFromSubject': subjectId,
-            'extractedFromAnatomicalRegion': subNode.get('raw/wasExtractedFromAnatomicalRegion'),
+            'wasDerivedFromSubject': subj_id,
+            'extractedFromAnatomicalRegion': sub_node.get('raw/wasExtractedFromAnatomicalRegion'),
         }
         return links
 
@@ -708,14 +708,14 @@ def add_sample_links(bf, ds, recordCache, subNode):
     model = updateModel(bf, ds)
 
     # Iterate over multiple subject records, single dataset
-    for sampleId, subjNode in subNode.items():
-        record = get_record_by_id(sampleId, model, recordCache)
-        links = transform_sample(subjNode)
-        add_record_links(ds, recordCache, model, record, links)
+    for sampleId, subj_node in sub_node.items():
+        record = get_record_by_id(sampleId, model, record_cache)
+        links = transform_sample(subj_node)
+        add_record_links(ds, record_cache, model, record, links)
     
         # Associate files with Samples
-        if subNode.get('hasDigitalArtifactThatIsAboutIt') is not None:
-            for fullFileName in subNode.get('hasDigitalArtifactThatIsAboutIt'):
+        if sub_node.get('hasDigitalArtifactThatIsAboutIt') is not None:
+            for fullFileName in sub_node.get('hasDigitalArtifactThatIsAboutIt'):
                 log.info('Adding File Links: {}'.format(fullFileName))
                 filename, file_extension = os.path.splitext(fullFileName)
                 pkgs = ds.get_packages_by_filename(filename)
@@ -723,7 +723,7 @@ def add_sample_links(bf, ds, recordCache, subNode):
                     for pkg in pkgs:
                         pkg.relate_to(record)
 
-def add_summary(bf, ds, recordCache, subNode):
+def add_summary(bf, ds, record_cache, sub_node):
     log.info("Adding summary...")
     
     def create_model(bf, ds):
@@ -759,72 +759,51 @@ def add_summary(bf, ds, recordCache, subNode):
             
         ])
 
-    def transform(recordId, subNode):
+    def transform(record_id, sub_node):
         # Check Milestone Completion Data is a date:
         try:
-            milestoneDate = parse(subNode.get('milestoneCompletionDate'))
+            milestoneDate = parse(sub_node.get('milestoneCompletionDate'))
             try:
                 milestoneDate = milestoneDate.isoformat()
             except:
-                log.warning('Cannot parse the Milestone Date: {}'.format(subNode.get('milestoneCompletionDate')))
+                log.warning('Cannot parse the Milestone Date: {}'.format(sub_node.get('milestoneCompletionDate')))
                 milestoneDate = None
         except:
             milestoneDate = None
 
         return {
             'milestoneCompletionDate': milestoneDate,
-            'isDescribedBy': get_as_list(subNode, 'isDescribedBy'),
-            'acknowledgements': subNode.get('acknowledgements'),
-            'collectionTitle': subNode.get('collectionTitle'),
-            'curationIndex': subNode.get('curationIndex'),
-            'description': get_as_list(subNode, 'description'),
-            'errorIndex': subNode.get('errorIndex'),
-            'hasExperimentalModality': get_as_list(subNode, 'hasExperimentalModality'),
-            'hasNumberOfContributors': subNode.get('hasNumberOfContributors'),
-            'hasNumberOfDirectories': subNode.get('hasNumberOfDirectories'),
-            'hasNumberOfFiles': subNode.get('hasNumberOfFiles'),
-            'hasNumberOfSamples': subNode.get('hasNumberOfSamples'),
-            'hasNumberOfSubjects': subNode.get('hasNumberOfSubjects'),
-            'hasSizeInBytes': subNode.get('hasSizeInBytes'),
-            'label': subNode.get('label'),
-            'submissionIndex': subNode.get('submissionIndex'),
-            'title': subNode.get('title')
+            'isDescribedBy': get_as_list(sub_node, 'isDescribedBy'),
+            'acknowledgements': sub_node.get('acknowledgements'),
+            'collectionTitle': sub_node.get('collectionTitle'),
+            'curationIndex': sub_node.get('curationIndex'),
+            'description': get_as_list(sub_node, 'description'),
+            'errorIndex': sub_node.get('errorIndex'),
+            'hasExperimentalModality': get_as_list(sub_node, 'hasExperimentalModality'),
+            'hasNumberOfContributors': sub_node.get('hasNumberOfContributors'),
+            'hasNumberOfDirectories': sub_node.get('hasNumberOfDirectories'),
+            'hasNumberOfFiles': sub_node.get('hasNumberOfFiles'),
+            'hasNumberOfSamples': sub_node.get('hasNumberOfSamples'),
+            'hasNumberOfSubjects': sub_node.get('hasNumberOfSubjects'),
+            'hasSizeInBytes': sub_node.get('hasSizeInBytes'),
+            'label': sub_node.get('label'),
+            'submissionIndex': sub_node.get('submissionIndex'),
+            'title': sub_node.get('title')
         }
-
-    
-    # links = {}
-
-    # relations = {}
-    # get "is about" relationships
-
-    # links['hasAwardNumber'] = subNode['hasAwardNumber'] if ('hasAwardNumber' in subNode and subNode['hasAwardNumber'] in recordCache['award']) else None
-
-    # regex = re.compile(r'\w+:\w+')
-    # for value in subNode.get('http://purl.obolibrary.org/obo/IAO_0000136', []):
-    #     if regex.match(value):
-    #         relations.setdefault('is-about', []).append(value)
-
-    # # get "involves anatomical region" relationships
-    # for value in subNode.get('involvesAnatomicalRegion', []):
-    #     relations.setdefault('involves-anatomical-region', []).append(value)
-
-    # # get "protocol employs technique" relationships
-    # for value in subNode.get('protocolEmploysTechnique', []):
-    #     relations.setdefault('protocol-employs-technique', []).append(value)
 
     record_list = []
     json_id_list = []
     
     # No iteration because there is only one summary.
-    record_list.append(transform('summary', subNode))
+    record_list.append(transform('summary', sub_node))
     json_id_list.append("{}".format( 'summary' ))
 
     if len(record_list):
         log.info('Creating {} new summary Records'.format(len(record_list)))
         model = create_model(bf, ds)
-        recordCache['summary'].update(zip(json_id_list, model.create_records(record_list)))
+        record_cache['summary'].update(zip(json_id_list, model.create_records(record_list)))
 
-def add_summary_links(bf, ds, recordCache, subNode):
+def add_summary_links(bf, ds, record_cache, sub_node):
 
     model = get_bf_model(ds, 'summary')
 
@@ -833,16 +812,16 @@ def add_summary_links(bf, ds, recordCache, subNode):
                 LinkedModelProperty('hasAwardNumber', get_bf_model(ds, 'award'), 'Award number')
             ])
 
-    def transform(subNode):
+    def transform(sub_node):
         links = {
-            'hasAwardNumber': subNode.get('hasAwardNumber'),
+            'hasAwardNumber': sub_node.get('hasAwardNumber'),
         }
         relationships = {
-            'hasResponsiblePrincipalInvestigator': {'type': 'researcher', 'node': subNode.get('hasResponsiblePrincipalInvestigator')},
-            'hasContactPerson': {'type': 'researcher', 'node': subNode.get('hasContactPerson')},
-            'involvesAnatomicalRegion': {'type': 'term', 'node': subNode.get('involvesAnatomicalRegion')},
-            'protocolEmploysTechnique': {'type': 'term', 'node': subNode.get('protocolEmploysTechnique')},
-            'isAbout': {'type': 'term', 'node': subNode.get('http://purl.obolibrary.org/obo/IAO_0000136')}
+            'hasResponsiblePrincipalInvestigator': {'type': 'researcher', 'node': sub_node.get('hasResponsiblePrincipalInvestigator')},
+            'hasContactPerson': {'type': 'researcher', 'node': sub_node.get('hasContactPerson')},
+            'involvesAnatomicalRegion': {'type': 'term', 'node': sub_node.get('involvesAnatomicalRegion')},
+            'protocolEmploysTechnique': {'type': 'term', 'node': sub_node.get('protocolEmploysTechnique')},
+            'isAbout': {'type': 'term', 'node': sub_node.get('http://purl.obolibrary.org/obo/IAO_0000136')}
 
         }
         return {
@@ -852,15 +831,15 @@ def add_summary_links(bf, ds, recordCache, subNode):
     # Add Property links to model
     model = updateModel(bf, ds)
 
-    record = get_record_by_id('summary', model, recordCache)
-    out = transform(subNode)
-    add_record_links(ds, recordCache, model, record, out['links'] )
+    record = get_record_by_id('summary', model, record_cache)
+    out = transform(sub_node)
+    add_record_links(ds, record_cache, model, record, out['links'] )
 
     # Create relationships
     rels = out['relationships']
-    add_record_relationships(ds, recordCache, record, out['relationships'])
+    add_record_relationships(ds, record_cache, record, out['relationships'])
 
-def add_awards(bf, ds, recordCache, subNode):
+def add_awards(bf, ds, record_cache, sub_node):
     log.info("Adding awards...")
 
     def create_model(bf, ds):
@@ -872,8 +851,8 @@ def add_awards(bf, ds, recordCache, subNode):
 
         ])
 
-    def transform(recordId, subNode):
-        awardId = subNode.get('awardId')
+    def transform(record_id, sub_node):
+        awardId = sub_node.get('awardId')
         r = requests.get(url = u'https://api.federalreporter.nih.gov/v1/projects/search?query=projectNumber:*{}*'.format(awardId))
         try:
             data = r.json()
@@ -901,4 +880,4 @@ def add_awards(bf, ds, recordCache, subNode):
                 'principal_investigator': None,
             }
 
-    update_records(bf, ds, subNode, "award", recordCache,  create_model, transform)
+    update_records(bf, ds, sub_node, "award", record_cache,  create_model, transform)
