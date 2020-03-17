@@ -182,7 +182,24 @@ class DynamoDBClient():
 
 ### Helper functions ###
 
-def unitValue(node, name, model_unit = 'None'):
+def has_bf_access(ds):
+    """Check that curation team has manager access
+
+    Parameters
+    ----------
+    ds: BFDataset
+        Dataset that is checked
+    """
+
+    teams = ds.team_collaborators()
+    for team in teams:
+        if team.name == 'SPARC Data Curation Team':
+            if team.role == 'manager':
+                return True
+    
+    return False
+
+def parse_unit_value(node, name, model_unit = 'None'):
     """Method that returns a value that is associated with a unit
 
     Method does the following:
@@ -245,8 +262,7 @@ def get_as_list(subNode, key):
             value = [subNode.get(key)]
     return value
 
-
-def iriLookup(iri, iriCache=None):
+def iri_lookup(iri, iriCache=None):
     'Retrieve data about a SPARC term'
     skipIri = (
         'http://uri.interlex.org',
@@ -260,7 +276,7 @@ def iriLookup(iri, iriCache=None):
     if iriCache is None:
         iriCache = {}
     if any(iri.startswith(s) for s in skipIri):
-        return stripIri(iri.strip())
+        return strip_iri(iri.strip())
     if iri in iriCache:
         log.debug('Returning cached IRI: %s', iri)
         return iriCache[iri]
@@ -286,7 +302,7 @@ def iriLookup(iri, iriCache=None):
         return r.json()
     log.error('SciCrunch HTTP Error: %d %s iri= %s', r.status_code, r.reason, iri)
 
-def getFirst(node, name, default=None):
+def get_first(node, name, default=None):
     try:
         return node[name][0]
     except (KeyError, IndexError):
@@ -300,7 +316,7 @@ def contains(list, filter):
     return False
 
 ### Parsing JSON data:
-def getJson(_type):
+def get_json(_type):
     '''Load JSON files containing expired and new metadata'''
     if _type == 'diff':
         with open(JSON_METADATA_EXPIRED, 'r') as f1:
@@ -376,7 +392,7 @@ def get_record_by_id(json_id, model, record_cache):
     else:
         return bf_obj
 
-def stripIri(iri):
+def strip_iri(iri):
     'Remove the base URL of an IRI'
     strips = (
         'http://uri.interlex.org/tgbugs/uris/readable/technique/',
@@ -385,6 +401,7 @@ def stripIri(iri):
         'http://uri.interlex.org/temp/uris/awards/',
         'http://uri.interlex.org/temp/uris/',
         'https://api.blackfynn.io/users/',
+        'https://api.blackfynn.io/datasets/',
 
         'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
         'http://www.w3.org/2000/01/rdf-schema#',

@@ -12,11 +12,11 @@ from blackfynn import Blackfynn, ModelProperty, LinkedModelProperty
 from time import time
 from bf_io import (
     authorized,
-    getCreateDataset,
-    clearDataset,
+    get_create_dataset,
+    clear_dataset,
     BlackfynnException,
     update_sparc_dashboard,
-    getModel
+    get_create_model
 )
 
 from base import (
@@ -25,11 +25,12 @@ from base import (
     SPARC_DATASET_ID,
     MODEL_NAMES,
     get_record_by_id,
-    getJson,
-    getFirst,
+    get_json,
+    get_first,
     get_bf_model,
     get_as_list,
-    unitValue
+    parse_unit_value,
+    has_bf_access
 )
 from pprint import pprint
 
@@ -50,7 +51,7 @@ def update_datasets(cfg, option = 'full', resume=None):
     update_start_time = time()
 
     oldJson = {}
-    newJson = getJson('full')
+    newJson = get_json('full')
 
     if option != 'full':
         # Get specific dataset from JSON
@@ -73,6 +74,7 @@ def update_datasets(cfg, option = 'full', resume=None):
     # Iterate over Datasets in JSON file and add metadata records...
     for dsId, node in newJson.items():
 
+        # Skip datasets until resume dataset is found if it exists
         if resume and is_resuming:
             if dsId != resume:
                 log.info('Skipping dataset: {}'.format(dsId))
@@ -84,19 +86,24 @@ def update_datasets(cfg, option = 'full', resume=None):
         log.info("Creating records for dataset: {}".format(dsId))
 
         # Need to get existing dataset, or create new dataset (in dev)
-        ds = getCreateDataset(cfg.bf, dsId)
+        ds = get_create_dataset(cfg.bf, dsId)
+
+        # Check that curation bot has manager access
+        if not has_bf_access(ds):
+            log.warning('UNABLE TO UPDATE DATASET DUE TO PERMISSIONS: {}'.format(dsId))
+            continue
 
         # Need to clear dataset records/models 
-        clearDataset(cfg.bf, ds)
+        clear_dataset(cfg.bf, ds)
         recordCache = {m: {} for m in MODEL_NAMES}
 
         # Add data from the JSON file to the BF Dataset
         try:
             # Create all records
-            addData(cfg.bf, ds, dsId, recordCache, node)
+            add_data(cfg.bf, ds, dsId, recordCache, node)
 
             # Create all links between records
-            addLinks(cfg.bf, ds, dsId, recordCache, node)
+            add_links(cfg.bf, ds, dsId, recordCache, node)
         except BlackfynnException:
             log.error("Dataset {} failed to update".format(dsId))
             failedDatasets.append(dsId)
@@ -133,7 +140,7 @@ def update_datasets(cfg, option = 'full', resume=None):
 
 ### CORE METHODS
 
-def updateRecords(bf, ds, subNode, model_name, recordCache, model_create_fnc, transform_fnc):
+def update_records(bf, ds, subNode, model_name, recordCache, model_create_fnc, transform_fnc):
     """Creates records for particular Model in Dataset
 
     This method takes the subNode for a particular model in a dataset and create the records.
@@ -168,7 +175,7 @@ def updateRecords(bf, ds, subNode, model_name, recordCache, model_create_fnc, tr
         log.info('Creating {} new {} Records'.format(len(record_list), model_name))
         recordCache[model_name].update(zip(json_id_list, model.create_records(record_list)))
 
-def addData(bf, ds, dsId, recordCache, node):
+def add_data(bf, ds, dsId, recordCache, node):
     """Iterate over specific models and add records
 
     This method is called as the core method to add records to datasets.
@@ -192,15 +199,15 @@ def addData(bf, ds, dsId, recordCache, node):
     models = ds.models()
 
     # Adding all records without setting linked properties and relationships
-    addProtocols(bf, ds, recordCache, node['Protocols'])
-    addTerms(bf, ds, recordCache, node['Terms'])
-    addResearchers(bf, ds, recordCache, node['Researcher'])
-    addSubjects(bf, ds, recordCache, node['Subjects'])
-    addSamples(bf, ds, recordCache, node['Samples'])
-    addAwards(bf, ds, recordCache, node['Awards'])
-    addSummary(bf, ds, recordCache, node['Resource'])
+    add_protocols(bf, ds, recordCache, node['Protocols'])
+    add_terms(bf, ds, recordCache, node['Terms'])
+    add_researchers(bf, ds, recordCache, node['Researcher'])
+    add_subjects(bf, ds, recordCache, node['Subjects'])
+    add_samples(bf, ds, recordCache, node['Samples'])
+    add_awards(bf, ds, recordCache, node['Awards'])
+    add_summary(bf, ds, recordCache, node['Resource'])
 
-def addLinks(bf, ds, dsId, recordCache, node):
+def add_links(bf, ds, dsId, recordCache, node):
     """Iterate over specific models and add property links and relationships
 
     This method is called as the core method to add property links and relationships to records.
@@ -221,11 +228,11 @@ def addLinks(bf, ds, dsId, recordCache, node):
     """
     
     # Adding all linked properties and relationships to records
-    addSummaryLinks(bf,ds, recordCache, node['Resource'])
-    addSubjectLinks(bf, ds, recordCache, node['Subjects'])
-    addSampleLinks(bf,ds, recordCache, node['Samples'])
+    add_summary_links(bf,ds, recordCache, node['Resource'])
+    add_subject_links(bf, ds, recordCache, node['Subjects'])
+    add_sample_links(bf,ds, recordCache, node['Samples'])
 
-def addRandomTerms(ds, label, recordCache):
+def add_random_terms(ds, label, recordCache):
     """Adding a record for a term that is not defined in TTL
 
     Most terms are defined in the TTL file as entities. However
@@ -244,18 +251,18 @@ def addRandomTerms(ds, label, recordCache):
 
     """
 
-    if not hasattr(addRandomTerms, "term_model"):
-        addRandomTerms.term_model = get_bf_model(ds, 'term')
-        addRandomTerms.model_ds = ds.id
-    elif addRandomTerms.model_ds != ds.id:
-        addRandomTerms.term_model = get_bf_model(ds, 'term')
-        addRandomTerms.model_ds = ds.id
+    if not hasattr(add_random_terms, "term_model"):
+        add_random_terms.term_model = get_bf_model(ds, 'term')
+        add_random_terms.model_ds = ds.id
+    elif add_random_terms.model_ds != ds.id:
+        add_random_terms.term_model = get_bf_model(ds, 'term')
+        add_random_terms.model_ds = ds.id
  
-    record = addRandomTerms.term_model.create_record({'label': label})
+    record = add_random_terms.term_model.create_record({'label': label})
     recordCache['term'][label] = record
     return record
 
-def addRecordLinks(ds, recordCache, model, record, links):
+def add_record_links(ds, recordCache, model, record, links):
     """Populate linked Properties for single record
 
     This method populates linked properties in a record provided to method.
@@ -305,7 +312,7 @@ def addRecordLinks(ds, recordCache, model, record, links):
                 # Record not in cache --> check if term --> if so, add new term,
                 # if not --> throw warning and don't link entry
                 if targetType == 'term':
-                    linkedRec = addRandomTerms(ds, item, recordCache)
+                    linkedRec = add_random_terms(ds, item, recordCache)
                 else:
                     log.warning('Unable to link to non-existing record {}'.format(targetType))
                     continue
@@ -317,7 +324,7 @@ def addRecordLinks(ds, recordCache, model, record, links):
                 log.error("Failed to add linked value '{}'='{}' to record {} with error '{}'".format(name, value, record, str(e)))
                 raise BlackfynnException(e)
 
-def addRecordRelationships(ds, recordCache, record, relationships):
+def add_record_relationships(ds, recordCache, record, relationships):
     
     log.info('Adding Record Relationships for {}'.format(record.id))
     # Iterate over all relationships in a record
@@ -344,7 +351,7 @@ def addRecordRelationships(ds, recordCache, record, relationships):
             if item in recordCache[targetModel]:
                 targetRecordList.append(recordCache[targetModel][item])
             elif targetModel == 'term':
-                linkedRec = addRandomTerms(ds, item, recordCache)
+                linkedRec = add_random_terms(ds, item, recordCache)
                 targetRecordList.append(linkedRec)
             else:
                 log.warning('Unable to relate to non-existing record {}'.format(targetModel))
@@ -356,11 +363,11 @@ def addRecordRelationships(ds, recordCache, record, relationships):
 
 ### MODEL SPECIFIC METHODS
 
-def addProtocols(bf, ds, recordCache, subNode):
+def add_protocols(bf, ds, recordCache, subNode):
     log.info("Adding protocols...")
 
     def create_model(bf, ds):
-        return getModel(bf, ds, 'protocol', 'Protocol', schema=[
+        return get_create_model(bf, ds, 'protocol', 'Protocol', schema=[
             ModelProperty('label', 'Name', title=True),
             ModelProperty('url', 'URL',data_type=ModelPropertyType(
                     data_type=str, format='url')),
@@ -381,13 +388,13 @@ def addProtocols(bf, ds, recordCache, subNode):
              'hasNumberOfProtcurAnnotations': subNode.get('hasNumberOfProtcurAnnotations')
         }
 
-    updateRecords(bf, ds, subNode, "protocol", recordCache,  create_model, transform)
+    update_records(bf, ds, subNode, "protocol", recordCache,  create_model, transform)
 
-def addTerms(bf, ds, recordCache, subNode):
+def add_terms(bf, ds, recordCache, subNode):
     log.info("Adding terms...")
 
     def create_model(bf, ds):
-        return getModel(bf, ds, 'term', 'Term', schema=[
+        return get_create_model(bf, ds, 'term', 'Term', schema=[
                 ModelProperty('label', 'Label', title=True), # is a list
                 ModelProperty('curie', 'CURIE'),
                 ModelProperty('definitions', 'Definition'), # is a list
@@ -405,9 +412,9 @@ def addTerms(bf, ds, recordCache, subNode):
         
     def transform(recordId, term):
         return {
-            'label': getFirst(term, 'labels', '(no label)'),
+            'label': get_first(term, 'labels', '(no label)'),
             'curie': term.get('curie'),
-            'definitions': getFirst(term, 'definitions'),
+            'definitions': get_first(term, 'definitions'),
             'abbreviations': term.get('abbreviations'),
             'synonyms': term.get('synonyms'),
             'acronyms': term.get('acronyms'),
@@ -415,13 +422,13 @@ def addTerms(bf, ds, recordCache, subNode):
             'iri': term.get('iri'),
         }
 
-    updateRecords(bf, ds, subNode, "term", recordCache,  create_model, transform)
+    update_records(bf, ds, subNode, "term", recordCache,  create_model, transform)
 
-def addResearchers(bf, ds, recordCache, subNode):
+def add_researchers(bf, ds, recordCache, subNode):
     log.info("Adding researchers...")
 
     def create_model(bf, ds):
-        return getModel(bf, ds, 'researcher', 'Researcher', schema=[
+        return get_create_model(bf, ds, 'researcher', 'Researcher', schema=[
                 ModelProperty('lastName', 'Last name', title=True),
                 ModelProperty('firstName', 'First name'),
                 ModelProperty('middleName', 'Middle name'),
@@ -443,15 +450,15 @@ def addResearchers(bf, ds, recordCache, subNode):
             'hasORCIDId': subNode.get('hasORCIDId')
         }
 
-    updateRecords(bf,ds,subNode, "researcher", recordCache,  create_model, transform)
+    update_records(bf,ds,subNode, "researcher", recordCache,  create_model, transform)
 
-def addSubjects(bf, ds, recordCache, subNode):
+def add_subjects(bf, ds, recordCache, subNode):
     log.info("Adding subjects...")
     termModel = get_bf_model(ds, 'term')
 
     ## Define Model Generators
     def create_human_model(bf, ds):
-        return getModel(bf, ds, 'human_subject', 'Human Subject',
+        return get_create_model(bf, ds, 'human_subject', 'Human Subject',
             schema = [
                 ModelProperty('localId', 'Subject ID', title=True),
                 ModelProperty('subjectHasWeight', 'Weight', data_type=ModelPropertyType(
@@ -477,7 +484,7 @@ def addSubjects(bf, ds, recordCache, subNode):
             )
 
     def create_animal_model(bf, ds):
-        return getModel(bf, ds, 'animal_subject', 'Animal Subject',
+        return get_create_model(bf, ds, 'animal_subject', 'Animal Subject',
             schema=[
                 ModelProperty('localId', 'Subject ID', title=True),
                 ModelProperty('animalSubjectHasWeight', 'Animal weight'), # unit+value
@@ -511,9 +518,9 @@ def addSubjects(bf, ds, recordCache, subNode):
         vals = {
             'localId': localId,
             'localExecutionNumber': subNode.get('localExecutionNumber'),
-            'subjectHasWeight': unitValue(subNode, 'subjectHasWeight', 'kg'),
-            'subjectHasHeight': unitValue(subNode, 'subjectHasHeight'),
-            'hasAge': unitValue(subNode, 'hasAge', 's'),
+            'subjectHasWeight': parse_unit_value(subNode, 'subjectHasWeight', 'kg'),
+            'subjectHasHeight': parse_unit_value(subNode, 'subjectHasHeight'),
+            'hasAge': parse_unit_value(subNode, 'hasAge', 's'),
             'spatialLocationOfModulator': subNode.get('spatialLocationOfModulator'),
             'stimulatorUtilized': subNode.get('stimulatorUtilized'),
             'hasAssignedGroup': subNode.get('hasAssignedGroup'),
@@ -529,14 +536,14 @@ def addSubjects(bf, ds, recordCache, subNode):
         vals = {
             'localId': localId,
             'localExecutionNumber': subNode.get('localExecutionNumber'),
-            'hasAge': unitValue(subNode, 'hasAge', 's'),
+            'hasAge': parse_unit_value(subNode, 'hasAge', 's'),
             'spatialLocationOfModulator': subNode.get('spatialLocationOfModulator'),
             'stimulatorUtilized': subNode.get('stimulatorUtilized'),
             'hasAssignedGroup': subNode.get('hasAssignedGroup'),
             'providerNote': subNode.get('providerNote'),
             'raw/involvesAnatomicalRegion': subNode.get('raw/involvesAnatomicalRegion'),
             'hasGenotype': subNode.get('hasGenotype'),
-            'animalSubjectHasWeight': unitValue(subNode, 'animalSubjectHasWeight'),
+            'animalSubjectHasWeight': parse_unit_value(subNode, 'animalSubjectHasWeight'),
             'wasAdministeredAnesthesia': subNode.get('wasAdministeredAnesthesia')
         }
 
@@ -578,7 +585,7 @@ def addSubjects(bf, ds, recordCache, subNode):
         animal_model = create_animal_model(bf, ds)
         recordCache['animal_subject'].update(zip(animal_json_id_list,animal_model.create_records(animal_record_list)))
 
-def addSubjectLinks(bf, ds, recordCache, subNode): 
+def add_subject_links(bf, ds, recordCache, subNode): 
 
     model = None
     subtype = subNode.get('animalSubjectIsOfSpecies')
@@ -619,16 +626,16 @@ def addSubjectLinks(bf, ds, recordCache, subNode):
         else:
             links = transform_animal(subjNode, subjectId)
 
-        addRecordLinks(ds, recordCache, model, record, links)
+        add_record_links(ds, recordCache, model, record, links)
 
-def addSamples(bf, ds, recordCache, subNode):
+def add_samples(bf, ds, recordCache, subNode):
     log.info("Adding samples to dataset: {}".format(ds.id))
 
     def create_sample_model(bf, ds):
         
         
         
-        return getModel(bf, ds, 'sample', 'Sample',
+        return get_create_model(bf, ds, 'sample', 'Sample',
             schema=[
                 ModelProperty('localId', 'ID', title=True),
                 ModelProperty('label', 'Label'),
@@ -647,7 +654,7 @@ def addSamples(bf, ds, recordCache, subNode):
     def transform(recordId,subNode):
         return {
             'localId': subNode.get('localId', '(no label)'),
-            'description': getFirst(subNode, 'description'),
+            'description': get_first(subNode, 'description'),
             'hasAssignedGroup': subNode.get('hasAssignedGroup'),
             'hasDigitalArtifactThatIsAboutIt': subNode.get('hasDigitalArtifactThatIsAboutIt'),
             'label': subNode.get('label'),
@@ -655,9 +662,9 @@ def addSamples(bf, ds, recordCache, subNode):
             'providerNote': subNode.get('providerNote')
         }
 
-    updateRecords(bf,ds,subNode, "sample", recordCache,  create_sample_model, transform)
+    update_records(bf,ds,subNode, "sample", recordCache,  create_sample_model, transform)
 
-def addSampleLinks(bf, ds, recordCache, subNode):
+def add_sample_links(bf, ds, recordCache, subNode):
 
     # Skip if Model is not defined.
     if get_bf_model(ds, 'sample') is None:
@@ -674,13 +681,13 @@ def addSampleLinks(bf, ds, recordCache, subNode):
         elif 'animal_subject' in models:
             subModel = models['animal_subject']
         else:
-            subModel = getModel(bf, ds, 'subject', 'Subject',
+            subModel = get_create_model(bf, ds, 'subject', 'Subject',
                 schema=[
                     ModelProperty('localId', 'ID', title=True)
                 ]
                 )
     
-        return getModel(bf, ds, 'sample', 'Sample', linked=[
+        return get_create_model(bf, ds, 'sample', 'Sample', linked=[
                 LinkedModelProperty('extractedFromAnatomicalRegion', get_bf_model(ds, 'term'), 'Extracted from anatomical region'),
                 LinkedModelProperty('wasDerivedFromSubject', subModel, 'Derived from subject')
             ])
@@ -704,7 +711,7 @@ def addSampleLinks(bf, ds, recordCache, subNode):
     for sampleId, subjNode in subNode.items():
         record = get_record_by_id(sampleId, model, recordCache)
         links = transform_sample(subjNode)
-        addRecordLinks(ds, recordCache, model, record, links)
+        add_record_links(ds, recordCache, model, record, links)
     
         # Associate files with Samples
         if subNode.get('hasDigitalArtifactThatIsAboutIt') is not None:
@@ -716,11 +723,11 @@ def addSampleLinks(bf, ds, recordCache, subNode):
                     for pkg in pkgs:
                         pkg.relate_to(record)
 
-def addSummary(bf, ds, recordCache, subNode):
+def add_summary(bf, ds, recordCache, subNode):
     log.info("Adding summary...")
     
     def create_model(bf, ds):
-        return getModel(bf, ds, 'summary', 'Summary', schema=[
+        return get_create_model(bf, ds, 'summary', 'Summary', schema=[
             ModelProperty('title', 'Title', title=True), # list
             # ModelProperty('hasResponsiblePrincipalInvestigator', 'Responsible Principal Investigator',
             #             data_type=ModelPropertyEnumType(data_type=str, multi_select=True)),
@@ -817,12 +824,12 @@ def addSummary(bf, ds, recordCache, subNode):
         model = create_model(bf, ds)
         recordCache['summary'].update(zip(json_id_list, model.create_records(record_list)))
 
-def addSummaryLinks(bf, ds, recordCache, subNode):
+def add_summary_links(bf, ds, recordCache, subNode):
 
     model = get_bf_model(ds, 'summary')
 
     def updateModel(bf, ds):
-        return getModel(bf, ds, 'summary', 'Summary', linked=[
+        return get_create_model(bf, ds, 'summary', 'Summary', linked=[
                 LinkedModelProperty('hasAwardNumber', get_bf_model(ds, 'award'), 'Award number')
             ])
 
@@ -847,17 +854,17 @@ def addSummaryLinks(bf, ds, recordCache, subNode):
 
     record = get_record_by_id('summary', model, recordCache)
     out = transform(subNode)
-    addRecordLinks(ds, recordCache, model, record, out['links'] )
+    add_record_links(ds, recordCache, model, record, out['links'] )
 
     # Create relationships
     rels = out['relationships']
-    addRecordRelationships(ds, recordCache, record, out['relationships'])
+    add_record_relationships(ds, recordCache, record, out['relationships'])
 
-def addAwards(bf, ds, recordCache, subNode):
+def add_awards(bf, ds, recordCache, subNode):
     log.info("Adding awards...")
 
     def create_model(bf, ds):
-        return getModel(bf, ds, 'award', 'Award', schema=[
+        return get_create_model(bf, ds, 'award', 'Award', schema=[
             ModelProperty('award_id', 'Award ID', title=True),
             ModelProperty('title', 'Title'),
             ModelProperty('description', 'Description'),
@@ -894,4 +901,4 @@ def addAwards(bf, ds, recordCache, subNode):
                 'principal_investigator': None,
             }
 
-    updateRecords(bf, ds, subNode, "award", recordCache,  create_model, transform)
+    update_records(bf, ds, subNode, "award", recordCache,  create_model, transform)

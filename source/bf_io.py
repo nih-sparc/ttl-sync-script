@@ -6,8 +6,6 @@ from requests.exceptions import HTTPError
 import logging
 from datetime import datetime as DT
 
-
-
 log = logging.getLogger(__name__)
 
 ### Blackfynn platform I/O:
@@ -28,7 +26,7 @@ def authorized(bf, dsId):
 
 
 ### Get dataset by ID/Name or create dataset with name that is ID
-def getCreateDataset(bf, dsId):
+def get_create_dataset(bf, dsId):
     try:
         ds = bf.get_dataset(dsId)
     except:
@@ -37,7 +35,7 @@ def getCreateDataset(bf, dsId):
 
     return ds
 
-def clearDataset(bf, dataset):
+def clear_dataset(bf, dataset):
     '''
     DANGER! Deletes all records of type:
     - protocol
@@ -65,7 +63,7 @@ def clearDataset(bf, dataset):
     log.info("Cleared dataset '{}'".format(dataset.name))
 
 
-def getModel(bf, ds, name, displayName, schema=None, linked=None):
+def get_create_model(bf, ds, name, displayName, schema=None, linked=None):
     '''create a model if it doesn't exist,
     or retrieve it and update its schema properties'''
     if schema is None:
@@ -98,6 +96,6 @@ def getModel(bf, ds, name, displayName, schema=None, linked=None):
 # This adds an entry to the sparc dashboard for this update run
 #%%
 def update_sparc_dashboard(bf):
-    sparc_ds = getCreateDataset(bf, SPARC_DATASET_ID)
+    sparc_ds = get_create_dataset(bf, SPARC_DATASET_ID)
     model = sparc_ds.get_model('Update_Run')
     model.create_record({'name':'TTL Update', 'status': DT.now()})

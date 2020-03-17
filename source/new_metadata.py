@@ -33,8 +33,8 @@ from base import (
     TTL_FILE_OLD,
     TTL_FILE_NEW,
     arrayProps,
-    iriLookup,
-    stripIri
+    iri_lookup,
+    strip_iri
 )
 
 log = logging.getLogger(__name__)
@@ -62,7 +62,7 @@ def parseMeasure(g, node, values):
                     term.URIRef('http://www.w3.org/2000/01/rdf-schema#Datatype'),
                     term.URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#nil')):
                 continue
-            values['unit'] = stripIri(v)
+            values['unit'] = strip_iri(v)
         elif isinstance(v, term.BNode):
             parseMeasure(g, v, values)
         else:
@@ -92,12 +92,12 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
         term.URIRef('http://uri.interlex.org/temp/uris/hasUriApi'),
         term.URIRef('http://uri.interlex.org/temp/uris/hasUriHuman'),
         term.URIRef('http://uri.interlex.org/temp/uris/hasProtocol')]
-    key = stripIri(p.strip())
+    key = strip_iri(p.strip())
 
     if isinstance(o, term.URIRef):
         if p in skipIri:
             return
-        value = iriLookup(o.strip(), iriCache)
+        value = iri_lookup(o.strip(), iriCache)
         if value:
             if isinstance(value, dict) and 'curie' in value:
                 ds['Terms'][value['curie']] = value
@@ -116,7 +116,7 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
                     data[key] = value
 
     elif isinstance(o, term.Literal):
-        value = stripIri(o.strip())
+        value = strip_iri(o.strip())
         if key in arrayProps:
             array = data.setdefault(key, [])
             array.append(value)
@@ -142,7 +142,7 @@ def getDatasets(gNew, gDelta, output, iriCache):
     # Iterate over Datasets
     for ds in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Resource')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", ds)
-        datasetId = stripIri(m.group(0).strip())
+        datasetId = strip_iri(m.group(0).strip())
         addEntry(output, datasetId)
         for p, o in gDelta.predicate_objects(ds):
             if p == URIRef("http://uri.interlex.org/temp/uris/hasAwardNumber"):
@@ -168,7 +168,7 @@ def getResearchers(gNew, gDelta, output, iriCache):
     # Iterate over Researchers
     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/contributorTo')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
-        datasetId = stripIri(m.group(0).strip())
+        datasetId = strip_iri(m.group(0).strip())
         user = s #s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
         newEntry = {}
         for p2, o2 in gDelta.predicate_objects(s):
@@ -202,7 +202,7 @@ def getProtocols(gNew, gDelta, output, iriCache):
     # Iterate over Protocols
     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/hasProtocol')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
-        datasetId = stripIri(m.group(0).strip())
+        datasetId = strip_iri(m.group(0).strip())
         url = str(o)
         newEntry = {}
         for p2, o2 in gDelta.predicate_objects(o):
@@ -212,7 +212,7 @@ def getProtocols(gNew, gDelta, output, iriCache):
 
 def getAwards(awardIdURI, dsId, output):
     # Iterate over awards
-    awardId = stripIri(awardIdURI)
+    awardId = strip_iri(awardIdURI)
     output[dsId]['Awards'][awardId] = {
         'awardId': awardId
     }
