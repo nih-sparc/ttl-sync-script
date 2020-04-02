@@ -30,7 +30,8 @@ from base import (
     get_bf_model,
     get_as_list,
     parse_unit_value,
-    has_bf_access
+    has_bf_access,
+    
 )
 from pprint import pprint
 
@@ -82,14 +83,13 @@ def update_datasets(cfg, option = 'full', resume=None):
             else:
                 is_resuming = False
 
-
         log.info("Creating records for dataset: {}".format(dsId))
 
         # Need to get existing dataset, or create new dataset (in dev)
         ds = get_create_dataset(cfg.bf, dsId)
 
         # Check that curation bot has manager access
-        if not has_bf_access(ds):
+        if cfg.env=='prod' and not has_bf_access(ds):
             log.warning('UNABLE TO UPDATE DATASET DUE TO PERMISSIONS: {}'.format(dsId))
             continue
 
@@ -108,8 +108,11 @@ def update_datasets(cfg, option = 'full', resume=None):
             log.error("Dataset {} failed to update".format(dsId))
             failedDatasets.append(dsId)
             continue
-        # finally:
-            # cfg.db_client.writeCache(dsId, recordCache)
+        finally:
+            log.info('finally')
+            log.info(cfg.db_client.environment_name)
+            db_client = cfg.db_client
+            db_client.writeCache(dsId, recordCache)
             
         # Update Dataset Tags by copying TERMS Records
         tags =[]
@@ -120,17 +123,22 @@ def update_datasets(cfg, option = 'full', resume=None):
 
         ds.tags = list(set(tags+ds.tags))
         ds.update()
-
  
-
+    # Iterate over Datasets in JSON grab cache and write to JSON output file
+    log.info('REBUILDING CACHE')
+    full_cache = {}
+    for dsId, node in newJson.items():
+        ds_cache = cfg.db_client.buildCache(dsId)
+        full_cache.update(ds_cache)
+    
+    with open(cfg.json_cache_file, 'w') as json_file:
+        json.dump(full_cache, json_file)
 
     # Timing stats
     duration = int((time() - new_start_time) * 1000)
     log.info("Added new metadata in {} milliseconds".format(duration))
     duration = int((time() - update_start_time) * 1000)
     log.info("Update datasets in {} milliseconds".format(duration))
-
-
 
     # Update dashboard when complete when running in production.
     if cfg.env == 'prod':
@@ -632,9 +640,7 @@ def add_samples(bf, ds, record_cache, sub_node):
     log.info("Adding samples to dataset: {}".format(ds.id))
 
     def create_sample_model(bf, ds):
-        
-        
-        
+
         return get_create_model(bf, ds, 'sample', 'Sample',
             schema=[
                 ModelProperty('localId', 'ID', title=True),
@@ -651,7 +657,7 @@ def add_samples(bf, ds, record_cache, sub_node):
                     data_type=str, multi_select=True)), # list
             ])
 
-    def transform(record_id,sub_node):
+    def transform(record_id, sub_node):
         return {
             'localId': sub_node.get('localId', '(no label)'),
             'description': get_first(sub_node, 'description'),
@@ -708,7 +714,9 @@ def add_sample_links(bf, ds, record_cache, sub_node):
     model = updateModel(bf, ds)
 
     # Iterate over multiple subject records, single dataset
+    log.info('Adding links')
     for sampleId, subj_node in sub_node.items():
+        log.info('{}'.format(sampleId))
         record = get_record_by_id(sampleId, model, record_cache)
         links = transform_sample(subj_node)
         add_record_links(ds, record_cache, model, record, links)

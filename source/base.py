@@ -77,6 +77,7 @@ class SSMClient():
 ### DynamoDB ###
 class DynamoDBClient():
     ### Database I/O
+    environment_name = None
 
     def __init__(self, aws_region, env, particion_key, endpoint, table_id, table_sort_key ):
         log.info('Getting DynamoDB client for: {} - {}'.format(endpoint, env))
@@ -94,56 +95,83 @@ class DynamoDBClient():
 
     #@mock_dynamodb2
     def getTable(self):
-        if self.environment_name is not "dev":
-            return self.client.Table(self.table_id)
-        return self.client.create_table(
-            TableName=self.table_id,
-            KeySchema=[
-                {'AttributeName': self.table_partition_key, 'KeyType': "HASH"},
-                {'AttributeName': self.table_sort_key, 'KeyType': "RANGE"}
-            ],
-            AttributeDefinitions=[
-                {'AttributeName': self.table_partition_key, 'AttributeType': 'S'},
-                {'AttributeName': self.table_sort_key, 'AttributeType': 'S'}
-            ],
-            BillingMode="PROVISIONED",
-            ProvisionedThroughput={
-                'ReadCapacityUnits': 123,
-                'WriteCapacityUnits': 123
-            }
-        )
+
+        table = self.client.Table(self.table_id)
+        
+        try:
+            is_table_existing = table.table_status in ("CREATING", "UPDATING", "DELETING", "ACTIVE")
+        except ClientError:
+            is_table_existing = False
+            print("Table {} doesn't exist.".format(table.name))
+
+        if is_table_existing:
+            return table
+        else:   
+            table = self.client.create_table(
+                TableName=self.table_id,
+                KeySchema=[
+                    {'AttributeName': self.table_partition_key, 'KeyType': "HASH"},
+                    {'AttributeName': self.table_sort_key, 'KeyType': "RANGE"}
+                ],
+                AttributeDefinitions=[
+                    {'AttributeName': self.table_partition_key, 'AttributeType': 'S'},
+                    {'AttributeName': self.table_sort_key, 'AttributeType': 'S'}
+                
+                ],
+                BillingMode="PROVISIONED",
+                ProvisionedThroughput={
+                    'ReadCapacityUnits': 123,
+                    'WriteCapacityUnits': 123
+                }
+            )
+            table.wait_until_exists()
+            return table
 
     #@mock_dynamodb2
     def buildCache(self, dsId):
-        '''
-        Get records cache from the database,
+        """Get records cache from the database,
+        
         return a dictionary of {model name: {identifier: record ID}}
-        '''
+        
+        """
+        
         table = self.getTable()
-        table.wait_until_exists()
         log.info('GETTING TABLE FROM DYNAMODB: {}'.format(table.table_status))
 
         res = table.query(KeyConditionExpression=Key(self.table_partition_key).eq(dsId))
         cache = {m: {} for m in MODEL_NAMES}
         for item in res['Items']:
             cache[item['model']][item['identifier']] = item['recordId']
+
         log.debug('Retrieved {} database records for {}'.format(res['Count'], dsId))
         return cache
 
     #@mock_dynamodb2
     def writeCache(self, dsId, recordCache):
-        'Write mappings in recordCache to the db'
+        """ Write cache to database
+
+        This method will remove all entries in database that currently exist
+        for the provided dsID and replace with those in the recordCache.
+
+        For Synchronization, it is important to make sure the recordCache is populated correctly.
+        
+        """
+
+        log.info('Writing Cache to DYNAMODB: {} '.format(self.environment_name))
+
         newEntries = [{
             'datasetId': dsId,
             'model': model,
             'identifier': k,
-            'id': v}
+            'id': v.id}
             for model, records in recordCache.items() for k, v in records.items()]
 
+        log.info('Got {} entries.'.format(len(newEntries)))
+
         table = self.getTable()
-        table.wait_until_exists()
         log.info('GETTING TABLE FROM DYNAMODB: {}'.format(table.table_status))
 
+        # Delete old items for particular dataset from table
         oldItems = table.query(KeyConditionExpression=Key(self.table_partition_key).eq(dsId))
         with table.batch_writer() as batch:
             for item in oldItems['Items']:
@@ -154,8 +182,9 @@ class DynamoDBClient():
                 except Exception as e:
                     print("an exception occured")
                     print(e)
-                    sys.exit()
+                    raise(e)
 
+        # Write new entries
         with table.batch_writer() as batch:
             for e in newEntries:
                 try:
@@ -172,7 +201,7 @@ class DynamoDBClient():
                 except Exception as e:
                     print("an exception occured")
                     print(e)
-                    sys.exit()
+                    raise(e)
 
         if newEntries:
             log.debug('Inserted {} records'.format(len(newEntries)))

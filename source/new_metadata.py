@@ -26,6 +26,7 @@ import sys
 
 from rdflib import BNode, Graph, URIRef, term
 from rdflib.namespace import RDF, RDFS, SKOS, OWL
+from rdflib.compare import graph_diff
 
 from base import (
     JSON_METADATA_FULL,
@@ -238,6 +239,15 @@ def buildJson(_type):
     
     gDelta = gNew - gOld # contains expired triples
     gIntersect = gNew & gOld # contains triples shared between both graphs
+
+    # gIntersect, gDeprecated, gDelta = graph_diff(gDelta1, gNew)
+
+    gDelta.serialize(destination='diff_graph_delta.ttl', format='turtle')
+    # gDeprecated.serialize(destination='diff_graph_deprecated.ttl', format='turtle')
+
+    # gDelta.serialize(destination='diff_graph.ttl', format='turtle')
+
+    
 
     # Set namespace prefixes:
     log.info('Setting namespace prefixes')
