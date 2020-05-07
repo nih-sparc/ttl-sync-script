@@ -540,7 +540,7 @@ def addTerms(ds, recordCache, subNode, file):
         file.append("Adding term '{}' to dataset '{}'".format(transform(term), ds))
         updateRecord(ds, recordCache, model, curie, transform(term), file)
         tags.append(getFirst(term, 'labels'))
-    ds.tags=list(set(tags+ds.tags))
+    ds.tags=list(set(tags))
     ds.update()
 
 def addResearchers(ds, recordCache, subNode, file):
