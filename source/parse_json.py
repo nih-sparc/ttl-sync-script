@@ -72,8 +72,14 @@ def update_datasets(cfg, option = 'full', resume=None):
 
     log.info('RESUME = {}'.format(resume))
 
+    # iteration = 0
     # Iterate over Datasets in JSON file and add metadata records...
     for dsId, node in newJson.items():
+
+        # if iteration > 4:
+        #     break
+
+        # iteration = iteration + 1
 
         # Skip datasets until resume dataset is found if it exists
         if resume and is_resuming:
@@ -113,23 +119,16 @@ def update_datasets(cfg, option = 'full', resume=None):
             log.info(cfg.db_client.environment_name)
             db_client = cfg.db_client
             db_client.writeCache(dsId, recordCache)
-            
-        # Update Dataset Tags by copying TERMS Records
-        tags =[]
-        terms = get_bf_model(ds, 'term')
-        term_records = terms.get_all()
-        for term in term_records:
-            tags.append(term.values['label'])
-
-        ds.tags = list(set(tags+ds.tags))
-        ds.update()
  
     # Iterate over Datasets in JSON grab cache and write to JSON output file
     log.info('REBUILDING CACHE')
     full_cache = {}
     for dsId, node in newJson.items():
-        ds_cache = cfg.db_client.buildCache(dsId)
-        full_cache.update(ds_cache)
+        cur_ds = {}
+        cur_ds[dsId] = cfg.db_client.buildCache(dsId)
+
+        # ds_cache = cfg.db_client.buildCache(dsId)
+        full_cache.update(cur_ds)
     
     with open(cfg.json_cache_file, 'w') as json_file:
         json.dump(full_cache, json_file)
@@ -214,6 +213,7 @@ def add_data(bf, ds, dsId, record_cache, node):
     add_samples(bf, ds, record_cache, node['Samples'])
     add_awards(bf, ds, record_cache, node['Awards'])
     add_summary(bf, ds, record_cache, node['Resource'])
+    add_tags(bf, ds, record_cache, node['Tags'])
 
 def add_links(bf, ds, dsId, record_cache, node):
     """Iterate over specific models and add property links and relationships
@@ -287,10 +287,12 @@ def add_record_links(ds, record_cache, model, record, links):
         Record that is being updated
     links: Array [ {name:  Node }]
         linked values (structured {name: identifier})
+    bf: Blackfynn Session
 
     """
 
     log.info('Adding Record Linked Properties for {}'.format(record.id))
+    payload =  []
     for name, value in links.items():
         # name: name of property to add, 
         # value = value of property ("id, or array of id's ")
@@ -311,6 +313,7 @@ def add_record_links(ds, record_cache, model, record, links):
         # Find model name of the linked property target
         targetType = get_bf_model(ds, linkedProp.target).type
 
+        # We can have an array of links per property 
         for item in valueList:
             # Check if value is in the record cache
             if item in record_cache[targetType]:
@@ -326,12 +329,21 @@ def add_record_links(ds, record_cache, model, record, links):
                     continue
             
             # Try to link record to property
-            try:
-                record.add_linked_value(linkedRec.id, linkedProp)
-            except Exception as e:
-                log.error("Failed to add linked value '{}'='{}' to record {} with error '{}'".format(name, value, record, str(e)))
-                raise BlackfynnException(e)
-
+            # try:
+            payload.append({
+                "name": targetType,
+                "schemaLinkedPropertyId" : linkedProp.id,
+                "to": linkedRec.id    
+            })
+                # record.add_linked_value(linkedRec.id, linkedProp)
+            # except Exception as e:
+            #     log.error("Failed to add linked value '{}'='{}' to record {} with error '{}'".format(name, value, record, str(e)))
+            #     raise BlackfynnException(e)
+        
+    log.info("Updating Linked Properties: {}".format(payload))   
+    if len(payload): 
+        model._api.concepts.instances.create_link_batch(ds, model, record, payload)
+        
 def add_record_relationships(ds, record_cache, record, relationships):
     
     log.info('Adding Record Relationships for {}'.format(record.id))
@@ -431,6 +443,27 @@ def add_terms(bf, ds, record_cache, sub_node):
         }
 
     update_records(bf, ds, sub_node, "term", record_cache,  create_model, transform)
+
+def add_tags(bf, ds, record_cache, sub_node):
+    """Adding Dataset Tags based on the Tags defined in the TTL file
+
+    Parameters
+    ----------
+    ds: BF_Dataset
+        Dataset that contains the records
+    recordCache: Dict
+        Dictionary mapping record identifier to record
+    sub_node: [String]
+        Representation of tags in JSON file
+    bf: Blackfynn Session
+    """
+
+    log.info("Adding Tags...")
+
+    terms = get_bf_model(ds, 'term')
+    tags = sub_node
+    ds.tags = list(set(tags))
+    ds.update()
 
 def add_researchers(bf, ds, record_cache, sub_node):
     log.info("Adding researchers...")
@@ -648,6 +681,8 @@ def add_samples(bf, ds, record_cache, sub_node):
                 ModelProperty('description', 'Description'), # list
                 ModelProperty('hasAssignedGroup', 'Group', data_type=ModelPropertyEnumType(
                     data_type=str, multi_select=True)), # list
+                ModelProperty('extractedFrom', 'Extract Location', data_type=ModelPropertyEnumType(
+                    data_type=str, multi_select=True)), # filename list
                 ModelProperty('hasDigitalArtifactThatIsAboutIt', 'Digital artifact', data_type=ModelPropertyEnumType(
                     data_type=str, multi_select=True)), # filename list
                 #ModelProperty('hasDigitalArtifactThatIsAboutItHash', ), # list
@@ -663,6 +698,7 @@ def add_samples(bf, ds, record_cache, sub_node):
             'description': get_first(sub_node, 'description'),
             'hasAssignedGroup': sub_node.get('hasAssignedGroup'),
             'hasDigitalArtifactThatIsAboutIt': sub_node.get('hasDigitalArtifactThatIsAboutIt'),
+            'extractedFrom':sub_node.get('raw/wasExtractedFromAnatomicalRegion'),
             'label': sub_node.get('label'),
             'localExecutionNumber': sub_node.get('localExecutionNumber'),
             'providerNote': sub_node.get('providerNote')
@@ -694,7 +730,7 @@ def add_sample_links(bf, ds, record_cache, sub_node):
                 )
     
         return get_create_model(bf, ds, 'sample', 'Sample', linked=[
-                LinkedModelProperty('extractedFromAnatomicalRegion', get_bf_model(ds, 'term'), 'Extracted from anatomical region'),
+                # LinkedModelProperty('extractedFromAnatomicalRegion', get_bf_model(ds, 'term'), 'Extracted from anatomical region'),
                 LinkedModelProperty('wasDerivedFromSubject', subModel, 'Derived from subject')
             ])
 
@@ -706,9 +742,15 @@ def add_sample_links(bf, ds, record_cache, sub_node):
 
         links = {
             'wasDerivedFromSubject': subj_id,
-            'extractedFromAnatomicalRegion': sub_node.get('raw/wasExtractedFromAnatomicalRegion'),
         }
-        return links
+
+        relationships = {
+            # 'extracted_from_anatomical_region': {'type': 'term', 'node': sub_node.get('raw/wasExtractedFromAnatomicalRegion')},
+        }
+        
+        return {
+            'links':links, 
+            'relationships':relationships}
 
     # Add Property links to model
     model = updateModel(bf, ds)
@@ -718,9 +760,15 @@ def add_sample_links(bf, ds, record_cache, sub_node):
     for sampleId, subj_node in sub_node.items():
         log.info('{}'.format(sampleId))
         record = get_record_by_id(sampleId, model, record_cache)
-        links = transform_sample(subj_node)
-        add_record_links(ds, record_cache, model, record, links)
+        out = transform_sample(subj_node)
+
+        # Adding Linked Properties
+        add_record_links(ds, record_cache, model, record, out['links'])
     
+        # Adding Relationships
+        rels = out['relationships']
+        add_record_relationships(ds, record_cache, record, out['relationships'])
+
         # Associate files with Samples
         if sub_node.get('hasDigitalArtifactThatIsAboutIt') is not None:
             for fullFileName in sub_node.get('hasDigitalArtifactThatIsAboutIt'):

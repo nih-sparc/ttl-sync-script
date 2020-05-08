@@ -18,6 +18,7 @@ JSON_METADATA_FULL = '/tmp/full_metadata.json'
 JSON_METADATA_NEW = '/tmp/new_metadata.json'
 TTL_FILE_OLD = '/tmp/curation-export-old.ttl'
 TTL_FILE_NEW = '/tmp/curation-export-new.ttl'
+TTL_FILE_DIFF = '/tmp/curation-export-diff.ttl'
 SPARC_DATASET_ID = 'N:dataset:bed6add3-09c0-4834-b129-c3b406240f3d'
 
 # List of properties which have multiple values:
@@ -136,7 +137,7 @@ class DynamoDBClient():
         """
         
         table = self.getTable()
-        log.info('GETTING TABLE FROM DYNAMODB: {}'.format(table.table_status))
+        log.info('GETTING TABLE FROM DYNAMODB: {}'.format(dsId))
 
         res = table.query(KeyConditionExpression=Key(self.table_partition_key).eq(dsId))
         cache = {m: {} for m in MODEL_NAMES}

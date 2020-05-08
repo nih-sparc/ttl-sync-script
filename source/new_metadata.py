@@ -15,6 +15,7 @@ Then exports a JSON object with the following structure:
         "Protocols": { ... }
         "Terms": { ... }
         "Samples": { ... }
+        "Tags": { ... }
     }
 }
 '''
@@ -46,7 +47,7 @@ log = logging.getLogger(__name__)
 def addEntry(output, datasetId):
     "Add a value for output[datasetId] if it doesn't already exist"
     output.setdefault(datasetId,
-        {'Resource':{},'Contributor':{},'Researcher':{},'Subjects':{},'Protocols':{},'Terms':{},'Samples':{}, 'Awards': {}})
+        {'Resource':{},'Contributor':{},'Researcher':{},'Subjects':{},'Protocols':{},'Terms':{},'Samples':{}, 'Awards': {}, 'Tags': []})
 
 def parseMeasure(g, node, values):
     for v in g.objects(subject=node):
@@ -218,12 +219,25 @@ def getAwards(awardIdURI, dsId, output):
         'awardId': awardId
     }
 
-# TODO: make an 'Organization' model using ror.org API
+def getTags(gNew, gDelta, output, iriCache):
+    # Iterate over Protocols
+    for s, o in gNew.subject_objects(URIRef('http://purl.obolibrary.org/obo/IAO_0000136')):
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
+        if m:
+            if isinstance(o, term.URIRef):
+                t = iri_lookup('dsakjd', iriCache)
+                if t:
+                    tag = t['labels'][0]
+                else:
+                    continue
+            else:
+                tag = str(o)
+
+            datasetId = strip_iri(m.group(0).strip())
+            if tag not in output[datasetId]['Tags']:
+                output[datasetId]['Tags'].append(tag)
 
 
-#%% [markdown]
-### Main body
-#%%
 def buildJson(_type):
     log.info('Building new meta data json')
     if _type == 'diff':
@@ -242,7 +256,7 @@ def buildJson(_type):
 
     # gIntersect, gDeprecated, gDelta = graph_diff(gDelta1, gNew)
 
-    gDelta.serialize(destination='diff_graph_delta.ttl', format='turtle')
+    # gDelta.serialize(destination='diff_graph_delta.ttl', format='turtle')
     # gDeprecated.serialize(destination='diff_graph_deprecated.ttl', format='turtle')
 
     # gDelta.serialize(destination='diff_graph.ttl', format='turtle')
@@ -263,6 +277,9 @@ def buildJson(_type):
 
     # log.info('Getting Contributors...')
     # getContributors(gNew, gDelta, output, iriCache)
+
+    log.info('Getting tags...')
+    getTags(gNew, gDelta, output, iriCache)
 
     log.info('Getting Researchers...')
     getResearchers(gNew, gDelta, output, iriCache)
