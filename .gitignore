@@ -7,3 +7,4 @@ __pycache__
 .ipynb_checkpoints/
 *.ipynb
 curation-json-cache.json
+source/ttl_update.egg-info/
