@@ -34,8 +34,8 @@ from base import (
     TTL_FILE_NEW,
     TTL_FILE_OLD,
     arrayProps,
-    iriLookup,
-    stripIri
+    iri_lookup,
+    strip_iri
 )
 
 log = logging.getLogger(__name__)
@@ -87,10 +87,10 @@ def populateExpiredValue(output, datasetId, model, identifier, p, o, iriCache):
         URIRef('http://uri.interlex.org/temp/uris/hasProtocol'))
     if p in skipIri:
         return
-    key = stripIri(p.strip())
+    key = strip_iri(p.strip())
 
     if isinstance(o, URIRef):
-        value = iriLookup(o.strip(), iriCache)
+        value = iri_lookup(o.strip(), iriCache)
         if not value:
             return
 
@@ -117,7 +117,7 @@ def populateExpiredValue(output, datasetId, model, identifier, p, o, iriCache):
     elif isinstance(o, Literal):
         record = addRecord(output, datasetId, model, identifier)
         if key in arrayProps:
-            value = stripIri(o.strip())
+            value = strip_iri(o.strip())
             addArrayValue(output, datasetId, model, identifier, key, value)
         elif key not in record['values']:
             addValue(output, datasetId, model, identifier, key)
@@ -141,14 +141,14 @@ def populateExpiredValue(output, datasetId, model, identifier, p, o, iriCache):
 def getExpiredDatasets(g, output):
     for ds in g.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Resource')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", ds)
-        datasetId = stripIri(m.group(0).strip())
+        datasetId = strip_iri(m.group(0).strip())
         d = addDataset(output, datasetId)
         d['expired'] = True
 
 def getExpiredResearchers(g, output):
     for s, o in g.subject_objects(URIRef('http://uri.interlex.org/temp/uris/contributorTo')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
-        datasetId = stripIri(m.group(0).strip())
+        datasetId = strip_iri(m.group(0).strip())
         user = s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
         r = addRecord(output, datasetId, 'researcher', user)
         r['expired'] = True
@@ -172,7 +172,7 @@ def getExpiredSamples(g, output):
 def getExpiredProtocols(g, output):
     for s, o in g.subject_objects(URIRef('http://uri.interlex.org/temp/uris/hasProtocol')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
-        datasetId = stripIri(m.group(0).strip())
+        datasetId = strip_iri(m.group(0).strip())
         protocolUrl = str(o)
         r = addRecord(output, datasetId, 'protocol', protocolUrl)
         r['expired'] = True
@@ -189,14 +189,14 @@ def getExpiredAwards(g, output):
 def getExpiredDatasetProperties(gIntersect, gDelta, output, iriCache):
     for ds in gIntersect.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Resource')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", ds)
-        datasetId = stripIri(m.group(0).strip())
+        datasetId = strip_iri(m.group(0).strip())
         for p, o in gDelta.predicate_objects(ds):
             populateExpiredValue(output, datasetId, 'summary', datasetId, p, o, iriCache)
 
 def getExpiredResearcherProperties(gIntersect, gDelta, output, iriCache):
     for s,p,o in gIntersect.triples( (None, URIRef('http://uri.interlex.org/temp/uris/contributorTo'), None) ):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
-        datasetId = stripIri(m.group(0).strip())
+        datasetId = strip_iri(m.group(0).strip())
         user = s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
         for p2, o2 in gDelta.predicate_objects(s):
             populateExpiredValue(output, datasetId, 'researcher', user, p2, o2, iriCache)
@@ -221,7 +221,7 @@ def getExpiredSampleProperties(gIntersect, gDelta, output, iriCache):
 def getExpiredProtocolProperties(gIntersect, gDelta, output, iriCache):
     for s,p,o in gIntersect.triples((None, URIRef('http://uri.interlex.org/temp/uris/hasProtocol'), None)):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
-        datasetId = stripIri(m.group(0).strip())
+        datasetId = strip_iri(m.group(0).strip())
         protocolUrl = str(o)
         for p2, o2 in gDelta.predicate_objects(o):
             populateExpiredValue(output, datasetId, 'protocol', protocolUrl, p2, o2, iriCache)

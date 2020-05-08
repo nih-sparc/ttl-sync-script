@@ -1,0 +1,9 @@
+Click
+Blackfynn
+beautifulsoup4
+boto3
+botocore
+configparser
+rdflib
+requests
+structlog

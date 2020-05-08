@@ -1,0 +1,4 @@
+
+        [console_scripts]
+        ttl_update=ttl_update_cli:cli
+    

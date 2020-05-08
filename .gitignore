@@ -1,2 +1,9 @@
 venv/
 .idea/
+.vscode/
+*.pyc
+__pycache__
+*.ttl
+.ipynb_checkpoints/
+*.ipynb
+curation-json-cache.json

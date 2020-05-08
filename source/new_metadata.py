@@ -15,6 +15,7 @@ Then exports a JSON object with the following structure:
         "Protocols": { ... }
         "Terms": { ... }
         "Samples": { ... }
+        "Tags": { ... }
     }
 }
 '''
@@ -26,6 +27,7 @@ import sys
 
 from rdflib import BNode, Graph, URIRef, term
 from rdflib.namespace import RDF, RDFS, SKOS, OWL
+from rdflib.compare import graph_diff
 
 from base import (
     JSON_METADATA_FULL,
@@ -33,12 +35,11 @@ from base import (
     TTL_FILE_OLD,
     TTL_FILE_NEW,
     arrayProps,
-    iriLookup,
-    stripIri,
+    iri_lookup,
+    strip_iri
 )
 
 log = logging.getLogger(__name__)
-
 
 #%% [markdown]
 ### Helper functions
@@ -46,7 +47,7 @@ log = logging.getLogger(__name__)
 def addEntry(output, datasetId):
     "Add a value for output[datasetId] if it doesn't already exist"
     output.setdefault(datasetId,
-        {'Resource':{},'Researcher':{},'Subjects':{},'Protocols':{},'Terms':{},'Samples':{}, 'Awards': {}})
+        {'Resource':{},'Contributor':{},'Researcher':{},'Subjects':{},'Protocols':{},'Terms':{},'Samples':{}, 'Awards': {}, 'Tags': []})
 
 def parseMeasure(g, node, values):
     for v in g.objects(subject=node):
@@ -63,7 +64,7 @@ def parseMeasure(g, node, values):
                     term.URIRef('http://www.w3.org/2000/01/rdf-schema#Datatype'),
                     term.URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#nil')):
                 continue
-            values['unit'] = stripIri(v)
+            values['unit'] = strip_iri(v)
         elif isinstance(v, term.BNode):
             parseMeasure(g, v, values)
         else:
@@ -71,19 +72,34 @@ def parseMeasure(g, node, values):
 
     return values
 
+
+#%% [markdown]
+### PopulateValue
+
+# g: graph
+# datasetId: datasetId
+# ds: output for particular dataset
+# data: output for particular section in dataset
+# p: predicate
+# o: object
+# iriCache: cache for iri terms.
+
+#%%
 def populateValue(g, datasetId, ds, data, p, o, iriCache):
+
+    ## Skipping following IRI's as they are handled separately (getResearcher, getProtocols, etc.)
     skipIri = [
         term.URIRef('http://uri.interlex.org/temp/uris/contributorTo'),
         term.URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'),
         term.URIRef('http://uri.interlex.org/temp/uris/hasUriApi'),
         term.URIRef('http://uri.interlex.org/temp/uris/hasUriHuman'),
         term.URIRef('http://uri.interlex.org/temp/uris/hasProtocol')]
-    key = stripIri(p.strip())
+    key = strip_iri(p.strip())
 
     if isinstance(o, term.URIRef):
         if p in skipIri:
             return
-        value = iriLookup(o.strip(), iriCache)
+        value = iri_lookup(o.strip(), iriCache)
         if value:
             if isinstance(value, dict) and 'curie' in value:
                 ds['Terms'][value['curie']] = value
@@ -92,22 +108,27 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
             if key in arrayProps:
                 array = data.setdefault(key, [])
                 array.append(value)
+            
             else:
                 if key in data:
-                    log.warning('I overwrote an existing entry!  %s - %s - %s', datasetId, key, value)
-                    #raise Exception('I just almost overwrote an existing entry!')
-                data[key] = value
+                    log.warning('Unexpected creation of array for:  %s - %s - %s', datasetId, key, value)
+                    log.warning('Existing value for this key     :  %s - %s - %s', datasetId, key, data[key])
+                    log.warning('----- continue to use initial value -----')
+                else:
+                    data[key] = value
 
     elif isinstance(o, term.Literal):
-        value = stripIri(o.strip())
+        value = strip_iri(o.strip())
         if key in arrayProps:
             array = data.setdefault(key, [])
             array.append(value)
         else:
             if key in data:
-                log.warning('I overwrote an existing entry!  %s - %s - %s', datasetId, key, value)
-                #raise Exception('I just almost overwrote an existing entry!')
-            data[key] = value
+                log.warning('Unexpected creation of array for:  %s - %s - %s', datasetId, key, value)
+                log.warning('Existing value for this key     :  %s - %s - %s', datasetId, key, data[key])
+                log.warning('----- continue to use initial value -----')
+            else:
+                data[key] = value
 
     elif isinstance(o, term.BNode):
         data[key] = parseMeasure(g, o, {'value': [], 'unit': ''})
@@ -123,19 +144,34 @@ def getDatasets(gNew, gDelta, output, iriCache):
     # Iterate over Datasets
     for ds in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Resource')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", ds)
-        datasetId = stripIri(m.group(0).strip())
+        datasetId = strip_iri(m.group(0).strip())
         addEntry(output, datasetId)
         for p, o in gDelta.predicate_objects(ds):
             if p == URIRef("http://uri.interlex.org/temp/uris/hasAwardNumber"):
                 getAwards(o, datasetId, output)
             populateValue(gDelta, datasetId, output[datasetId], output[datasetId]['Resource'], p, o, iriCache)
 
+# def getContributors(gNew, gDelta, output, iriCache):
+#     # Iterate over Researchers
+#     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/aboutContributor')):
+#         log.info('s:{}'.format(s))
+#         log.info('o:{}'.format(o))
+#         # m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
+#         # datasetId = stripIri(m.group(0).strip())
+#         # user = s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
+#         # newEntry = {}
+#         # log.info(gDelta.predicate_objects(s))
+#         for p2, o2 in gDelta.predicate_objects(s):
+#             populateValue(gDelta, datasetId, output[datasetId], newEntry, p2, o2, iriCache)
+#         if newEntry:
+#             output[datasetId]['Contributor'][user] = newEntry
+
 def getResearchers(gNew, gDelta, output, iriCache):
     # Iterate over Researchers
     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/contributorTo')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
-        datasetId = stripIri(m.group(0).strip())
-        user = s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
+        datasetId = strip_iri(m.group(0).strip())
+        user = s #s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
         newEntry = {}
         for p2, o2 in gDelta.predicate_objects(s):
             populateValue(gDelta, datasetId, output[datasetId], newEntry, p2, o2, iriCache)
@@ -168,7 +204,7 @@ def getProtocols(gNew, gDelta, output, iriCache):
     # Iterate over Protocols
     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/hasProtocol')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
-        datasetId = stripIri(m.group(0).strip())
+        datasetId = strip_iri(m.group(0).strip())
         url = str(o)
         newEntry = {}
         for p2, o2 in gDelta.predicate_objects(o):
@@ -178,15 +214,30 @@ def getProtocols(gNew, gDelta, output, iriCache):
 
 def getAwards(awardIdURI, dsId, output):
     # Iterate over awards
-    awardId = stripIri(awardIdURI)
-    output[dsId]['Awards'][awardId] = dsId
+    awardId = strip_iri(awardIdURI)
+    output[dsId]['Awards'][awardId] = {
+        'awardId': awardId
+    }
 
-# TODO: make an 'Organization' model using ror.org API
+def getTags(gNew, gDelta, output, iriCache):
+    # Iterate over Protocols
+    for s, o in gNew.subject_objects(URIRef('http://purl.obolibrary.org/obo/IAO_0000136')):
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
+        if m:
+            if isinstance(o, term.URIRef):
+                t = iri_lookup('dsakjd', iriCache)
+                if t:
+                    tag = t['labels'][0]
+                else:
+                    continue
+            else:
+                tag = str(o)
+
+            datasetId = strip_iri(m.group(0).strip())
+            if tag not in output[datasetId]['Tags']:
+                output[datasetId]['Tags'].append(tag)
 
 
-#%% [markdown]
-### Main body
-#%%
 def buildJson(_type):
     log.info('Building new meta data json')
     if _type == 'diff':
@@ -199,8 +250,18 @@ def buildJson(_type):
         gNew = Graph().parse(TTL_FILE_NEW, format='turtle')
     else:
         raise Exception("Must use option 'diff' or 'full'")
+    
     gDelta = gNew - gOld # contains expired triples
     gIntersect = gNew & gOld # contains triples shared between both graphs
+
+    # gIntersect, gDeprecated, gDelta = graph_diff(gDelta1, gNew)
+
+    # gDelta.serialize(destination='diff_graph_delta.ttl', format='turtle')
+    # gDeprecated.serialize(destination='diff_graph_deprecated.ttl', format='turtle')
+
+    # gDelta.serialize(destination='diff_graph.ttl', format='turtle')
+
+    
 
     # Set namespace prefixes:
     log.info('Setting namespace prefixes')
@@ -214,18 +275,25 @@ def buildJson(_type):
     log.info('Getting datasets...')
     getDatasets(gNew, gDelta, output, iriCache)
 
-    log.info('Getting new records and properties...')
+    # log.info('Getting Contributors...')
+    # getContributors(gNew, gDelta, output, iriCache)
+
+    log.info('Getting tags...')
+    getTags(gNew, gDelta, output, iriCache)
+
+    log.info('Getting Researchers...')
     getResearchers(gNew, gDelta, output, iriCache)
+    
+    log.info('Getting Subjects...')
     getSubjects(gNew, gDelta, output, iriCache)
+    
+    log.info('Getting Samples...')
     getSamples(gNew, gDelta, output, iriCache)
+    
+    log.info('Getting Protocols...')
     getProtocols(gNew, gDelta, output, iriCache)
     del iriCache
 
     with open(outputFile, 'w') as f:
         json.dump(output, f)
         log.info("Added %d datasets to '%s'", len(output), f.name)
-
-if __name__ == '__main__':
-    if len(sys.argv != 2):
-        raise Exception("Must use option 'diff' or 'full'")
-    buildJson(sys.argv[1])
