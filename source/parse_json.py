@@ -72,14 +72,8 @@ def update_datasets(cfg, option = 'full', resume=None):
 
     log.info('RESUME = {}'.format(resume))
 
-    # iteration = 0
     # Iterate over Datasets in JSON file and add metadata records...
     for dsId, node in newJson.items():
-
-        # if iteration > 4:
-        #     break
-
-        # iteration = iteration + 1
 
         # Skip datasets until resume dataset is found if it exists
         if resume and is_resuming:
@@ -101,15 +95,19 @@ def update_datasets(cfg, option = 'full', resume=None):
 
         # Need to clear dataset records/models 
         clear_dataset(cfg.bf, ds)
-        recordCache = {m: {} for m in MODEL_NAMES}
+        record_cache = {m: {} for m in MODEL_NAMES}
 
         # Add data from the JSON file to the BF Dataset
         try:
             # Create all records
-            add_data(cfg.bf, ds, dsId, recordCache, node)
+            add_data(cfg.bf, ds, dsId, record_cache, node)
 
             # Create all links between records
-            add_links(cfg.bf, ds, dsId, recordCache, node)
+            add_links(cfg.bf, ds, dsId, record_cache, node)
+
+            # Add Dataset Tags
+            add_tags(cfg.bf, ds, node['Tags'])
+
         except BlackfynnException:
             log.error("Dataset {} failed to update".format(dsId))
             failedDatasets.append(dsId)
@@ -118,7 +116,7 @@ def update_datasets(cfg, option = 'full', resume=None):
             log.info('finally')
             log.info(cfg.db_client.environment_name)
             db_client = cfg.db_client
-            db_client.writeCache(dsId, recordCache)
+            db_client.writeCache(dsId, record_cache)
  
     # Iterate over Datasets in JSON grab cache and write to JSON output file
     log.info('REBUILDING CACHE')
@@ -213,7 +211,6 @@ def add_data(bf, ds, dsId, record_cache, node):
     add_samples(bf, ds, record_cache, node['Samples'])
     add_awards(bf, ds, record_cache, node['Awards'])
     add_summary(bf, ds, record_cache, node['Resource'])
-    add_tags(bf, ds, record_cache, node['Tags'])
 
 def add_links(bf, ds, dsId, record_cache, node):
     """Iterate over specific models and add property links and relationships
@@ -444,15 +441,13 @@ def add_terms(bf, ds, record_cache, sub_node):
 
     update_records(bf, ds, sub_node, "term", record_cache,  create_model, transform)
 
-def add_tags(bf, ds, record_cache, sub_node):
+def add_tags(bf, ds, sub_node):
     """Adding Dataset Tags based on the Tags defined in the TTL file
 
     Parameters
     ----------
     ds: BF_Dataset
         Dataset that contains the records
-    recordCache: Dict
-        Dictionary mapping record identifier to record
     sub_node: [String]
         Representation of tags in JSON file
     bf: Blackfynn Session
@@ -460,9 +455,14 @@ def add_tags(bf, ds, record_cache, sub_node):
 
     log.info("Adding Tags...")
 
-    terms = get_bf_model(ds, 'term')
     tags = sub_node
+    if not tags:
+        tags = ['SPARC']
+        
+    print(tags)
     ds.tags = list(set(tags))
+
+    print(ds.tags)
     ds.update()
 
 def add_researchers(bf, ds, record_cache, sub_node):
