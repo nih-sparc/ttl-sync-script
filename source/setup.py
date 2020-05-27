@@ -10,7 +10,7 @@ setup(
         'bf_io','config'],
     install_requires=[
         'Click','Blackfynn','beautifulsoup4',
-        'boto3','botocore','configparser','rdflib',
+        'configparser','rdflib',
         'requests','structlog'
     ],
     entry_points='''

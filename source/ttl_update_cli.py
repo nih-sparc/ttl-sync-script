@@ -14,7 +14,6 @@ fh = logging.FileHandler('/tmp/curation_val.log')
 fh.setLevel(logging.WARNING)
 root_log.addHandler(fh)
 
-
 log = logging.getLogger(__name__)
 
 @click.group()
@@ -36,31 +35,18 @@ def to_json(method):
 @click.command()
 @click.argument('env', nargs=1)
 @click.argument('id', nargs=-1)
-def update(env, id=None):
+@click.option('-f', '--force_update', default=False, type=bool)
+def update(env, id=None, force_update=False):
     if env in ['prod', 'dev']:
         log.info('Starting UPDATE for: {}'.format(env))
         cfg = Configs(env)
         if id:
-            out = update_datasets(cfg, id[0])
+            out = update_datasets(cfg, id[0], force_update)
         else:
-            out = update_datasets(cfg, 'full')
+            out = update_datasets(cfg, 'full', force_update)
     else:
         log.warning('Incorrect argument (''prod'', ''dev'')')
-
-@click.command()
-@click.argument('env', nargs=1)
-@click.argument('id', nargs=1)
-def resume_update(env, id=None):
-    if env in ['prod', 'dev']:
-        log.info('Starting UPDATE for: {}'.format(env))
-        cfg = Configs(env)
-        out = update_datasets(cfg, resume=id)
-
-    else:
-        log.warning('Incorrect argument (''prod'', ''dev'')')
-
 
 cli.add_command(get_ttl)
 cli.add_command(to_json)
 cli.add_command(update)
-cli.add_command(resume_update)

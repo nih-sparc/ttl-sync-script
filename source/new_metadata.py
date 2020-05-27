@@ -9,13 +9,13 @@ With the 'full' option, gets all metadata from a TTL_FILE_NEW.
 Then exports a JSON object with the following structure:
 {
     datasetId: {
-        "Resource": { ... }
-        "Researcher": { ... }
-        "Subjects": { ... }
-        "Protocols": { ... }
-        "Terms": { ... }
-        "Samples": { ... }
-        "Tags": { ... }
+        "summary": { ... }
+        "researcher": { ... }
+        "subject": { ... }
+        "protocol": { ... }
+        "term": { ... }
+        "sample": { ... }
+        "tag": { ... }
     }
 }
 '''
@@ -47,7 +47,7 @@ log = logging.getLogger(__name__)
 def addEntry(output, datasetId):
     "Add a value for output[datasetId] if it doesn't already exist"
     output.setdefault(datasetId,
-        {'Resource':{},'Contributor':{},'Researcher':{},'Subjects':{},'Protocols':{},'Terms':{},'Samples':{}, 'Awards': {}, 'Tags': []})
+        {'summary':{},'contributor':{},'researcher':{},'subject':{},'protocol':{},'term':{},'sample':{}, 'award': {}, 'tag': []})
 
 def parseMeasure(g, node, values):
     for v in g.objects(subject=node):
@@ -93,16 +93,18 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
         term.URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'),
         term.URIRef('http://uri.interlex.org/temp/uris/hasUriApi'),
         term.URIRef('http://uri.interlex.org/temp/uris/hasUriHuman'),
-        term.URIRef('http://uri.interlex.org/temp/uris/hasProtocol')]
+        term.URIRef('http://uri.interlex.org/temp/uris/hasProtocol'),
+        term.URIRef('http://uri.interlex.org/temp/uris/wasUpdatedAtTime')]
     key = strip_iri(p.strip())
 
+    if p in skipIri:
+        return
+
     if isinstance(o, term.URIRef):
-        if p in skipIri:
-            return
         value = iri_lookup(o.strip(), iriCache)
         if value:
             if isinstance(value, dict) and 'curie' in value:
-                ds['Terms'][value['curie']] = value
+                ds['term'][value['curie']] = value
                 value = value['curie']
 
             if key in arrayProps:
@@ -149,7 +151,7 @@ def getDatasets(gNew, gDelta, output, iriCache):
         for p, o in gDelta.predicate_objects(ds):
             if p == URIRef("http://uri.interlex.org/temp/uris/hasAwardNumber"):
                 getAwards(o, datasetId, output)
-            populateValue(gDelta, datasetId, output[datasetId], output[datasetId]['Resource'], p, o, iriCache)
+            populateValue(gDelta, datasetId, output[datasetId], output[datasetId]['summary'], p, o, iriCache)
 
 # def getContributors(gNew, gDelta, output, iriCache):
 #     # Iterate over Researchers
@@ -171,12 +173,13 @@ def getResearchers(gNew, gDelta, output, iriCache):
     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/contributorTo')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
         datasetId = strip_iri(m.group(0).strip())
-        user = s #s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
+        user = strip_iri(s)
+        # user = s #s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
         newEntry = {}
         for p2, o2 in gDelta.predicate_objects(s):
             populateValue(gDelta, datasetId, output[datasetId], newEntry, p2, o2, iriCache)
         if newEntry:
-            output[datasetId]['Researcher'][user] = newEntry
+            output[datasetId]['researcher'][user] = newEntry
 
 def getSubjects(gNew, gDelta, output, iriCache):
     # Iterate over Subjects
@@ -184,9 +187,9 @@ def getSubjects(gNew, gDelta, output, iriCache):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)/subjects/(?P<sub>[\w-]+)", s)
         datasetId = m.group(1).strip()
         subj_id = m.group(2).strip()
-        output[datasetId]['Subjects'][subj_id] = {}
+        output[datasetId]['subject'][subj_id] = {}
         for p2, o2 in gDelta.predicate_objects(s):
-            populateValue(gDelta, datasetId, output[datasetId],output[datasetId]['Subjects'][subj_id], p2, o2, iriCache)
+            populateValue(gDelta, datasetId, output[datasetId],output[datasetId]['subject'][subj_id], p2, o2, iriCache)
 
 def getSamples(gNew, gDelta, output, iriCache):
     # Iterate over Samples
@@ -198,7 +201,7 @@ def getSamples(gNew, gDelta, output, iriCache):
         for p2, o2 in gDelta.predicate_objects(s):
             populateValue(gDelta, datasetId, output[datasetId], newEntry, p2, o2, iriCache)
         if newEntry:
-            output[datasetId]['Samples'][sampleId] = newEntry
+            output[datasetId]['sample'][sampleId] = newEntry
 
 def getProtocols(gNew, gDelta, output, iriCache):
     # Iterate over Protocols
@@ -210,12 +213,12 @@ def getProtocols(gNew, gDelta, output, iriCache):
         for p2, o2 in gDelta.predicate_objects(o):
             populateValue(gDelta, datasetId, output[datasetId], newEntry, p2, o2, iriCache)
         if newEntry:
-            output[datasetId]['Protocols'][url] = newEntry
+            output[datasetId]['protocol'][url] = newEntry
 
 def getAwards(awardIdURI, dsId, output):
     # Iterate over awards
     awardId = strip_iri(awardIdURI)
-    output[dsId]['Awards'][awardId] = {
+    output[dsId]['award'][awardId] = {
         'awardId': awardId
     }
 
@@ -225,7 +228,7 @@ def getTags(gNew, gDelta, output, iriCache):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
         if m:
             if isinstance(o, term.URIRef):
-                t = iri_lookup('dsakjd', iriCache)
+                t = iri_lookup(o, iriCache)
                 if t:
                     tag = t['labels'][0]
                 else:
@@ -234,8 +237,8 @@ def getTags(gNew, gDelta, output, iriCache):
                 tag = str(o)
 
             datasetId = strip_iri(m.group(0).strip())
-            if tag not in output[datasetId]['Tags']:
-                output[datasetId]['Tags'].append(tag)
+            if tag not in output[datasetId]['tag']:
+                output[datasetId]['tag'].append(tag)
 
 
 def buildJson(_type):

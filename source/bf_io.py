@@ -24,6 +24,77 @@ def authorized(bf, dsId):
         return False
     return str(role)
 
+def get_create_hash_ds(bf):
+    """ Create or get dataset used to track updates
+    """
+    try:
+        ds = bf.get_dataset('sparc_curation_sync')
+    except:
+        log.warning('Failed to get dataset --> Creating dataset: {}"'.format('sparc_curation_sync'))
+        ds = bf.create_dataset('sparc_curation_sync')
+
+    try:
+        model = ds.get_model('dataset')
+    except:
+        ds.create_model('dataset', 'dataset', schema=[
+            ModelProperty('ds_id', 'ds_id', title=True),
+            ModelProperty('protocol', 'Protocol' ),
+            ModelProperty('term', 'Term'),
+            ModelProperty('researcher', 'Researcher'),
+            ModelProperty('subject', 'Subject'),
+            ModelProperty('sample', 'Sample'),
+            ModelProperty('award', 'Award'),
+            ModelProperty('summary', 'Summary'),
+            ModelProperty('tag', 'Tags')])
+        
+    return ds
+
+### Conduct search 
+def search_for_records(bf, ds, model_name, filters):
+    """ Returns JSON representation of record
+    """
+
+    org_int_id = bf.context.int_id
+    host = "{}/".format(bf._api.settings.api_host)
+
+    payload = { "model": model_name,
+        "datasets": [ds.int_id],
+        "filters": filters}
+
+    response = bf._api._post(host = host, 
+        base="models/v2/", 
+        endpoint="organizations/{}/search/records".format(org_int_id),
+        json=payload)
+
+    rec = None
+    if response['records']:
+        records = response['records']
+        if len(records) > 1:
+            raise(Exception('More than one search result, this is unlikely to happen'))
+        
+        rec = records[0]
+
+        log.info("Found Record: {}".format(rec['id']))
+    else:
+        log.info("COULD NOT FIND RECORD: {}".format(filters))
+
+    return rec
+
+### Create many links
+def create_links(bf, dataset, model_id, record_id, payload):
+        dataset_id = dataset.id
+        json = {"data": payload}
+
+        resp = bf._api._post(
+            host = "{}/".format(bf._api.settings.api_host),
+            base = "models/v1/",
+            endpoint = "datasets/{}/concepts/{}/instances/{}/linked/batch".format(dataset_id,model_id,record_id),
+            json=json
+        )
+
+        results = resp["data"]
+
+        return results
 
 ### Get dataset by ID/Name or create dataset with name that is ID
 def get_create_dataset(bf, dsId):
@@ -62,6 +133,14 @@ def clear_dataset(bf, dataset):
             
     log.info("Cleared dataset '{}'".format(dataset.name))
 
+def clear_model(bf, ds, model_name):
+    try:
+        model = ds.get_model(model_name)
+        recs = model.get_all(limit = model.count)
+        model.delete_records(*recs)
+        model.delete()
+    except:
+        print('Model {} does not exist in {}'.format(model_name, ds))
 
 def get_create_model(bf, ds, name, displayName, schema=None, linked=None):
     '''create a model if it doesn't exist,

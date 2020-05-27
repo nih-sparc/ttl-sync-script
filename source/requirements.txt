@@ -1,12 +1,11 @@
 beautifulsoup4==4.8.0
 blackfynn>=3.6.1
-boto3==1.9.206
-botocore==1.12.206
 configparser==3.8.1
 rdflib==4.2.2
 requests==2.22.0
 structlog
 click
+pyhash
 
 
 

@@ -1,7 +1,7 @@
 'Download the two latest SPARC TTLs'
 from shutil import copyfileobj
 
-import boto3
+# import boto3
 from bs4 import BeautifulSoup
 #from moto import mock_ssm
 import requests
@@ -9,7 +9,7 @@ from requests.compat import quote, unquote
 from rdflib import BNode, Graph, URIRef, term
 from rdflib.namespace import RDF, RDFS, SKOS, OWL
 
-from base import SSMClient
+# from base import SSMClient
 # from config import Configs
 
 from base import (

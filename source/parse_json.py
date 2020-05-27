@@ -6,6 +6,8 @@ import re
 import sys
 import os
 import requests
+import math
+import pyhash
 from blackfynn.models import ModelPropertyEnumType, BaseCollection, ModelPropertyType
 from blackfynn import Blackfynn, ModelProperty, LinkedModelProperty
 
@@ -16,7 +18,11 @@ from bf_io import (
     clear_dataset,
     BlackfynnException,
     update_sparc_dashboard,
-    get_create_model
+    get_create_model,
+    get_create_hash_ds,
+    clear_model,
+    search_for_records,
+    create_links
 )
 
 from base import (
@@ -24,7 +30,6 @@ from base import (
     JSON_METADATA_NEW,
     SPARC_DATASET_ID,
     MODEL_NAMES,
-    get_record_by_id,
     get_json,
     get_first,
     get_bf_model,
@@ -37,103 +42,107 @@ from pprint import pprint
 
 logging.basicConfig(format="%(asctime);s%(filename)s:%(lineno)d:\t%(message)s")
 log = logging.getLogger(__name__)
+fp = pyhash.farm_fingerprint_64()
 
 ### ENTRY POINT
 
-def update_datasets(cfg, option = 'full', resume=None):
+def update_datasets(cfg, option = 'full', force_update = False):
     """
     Update all datasets.
-    if `reset`: clear and re-add all records. If not `reset`, only delete added items
 
     Returns: list of datasets that failed to update
     """
-
-    log.info("Updating all datasets:")
     update_start_time = time()
 
     oldJson = {}
-    newJson = get_json('full')
+    newJson = get_json()
 
+    # If specific datasets is updated, select only current dataset
     if option != 'full':
-        # Get specific dataset from JSON
+        log.info("Updating dataset: {}".format(option))
         ds_info = newJson[option]
         newJson.clear() 
         newJson[option] = ds_info
+    else:
+        log.info("Updating all datasets:")
 
     failedDatasets = []
-       
-    log.info('===========================')
-    log.info('=== Adding new metadata ===')
-    log.info('===========================')
-    log.info('')
-    new_start_time = time()
 
-    is_resuming = True
-
-    log.info('RESUME = {}'.format(resume))
+    # Get/create the synchronization dataset that captures the hash-identities per dataset
+    sync_ds = get_create_hash_ds(cfg.bf)
+    sync_rec_model = sync_ds.get_model('dataset') 
+    sync_recs = sync_rec_model.get_all(limit = 500)
+    sync_dict = {x.get('ds_id'): x for x in sync_recs}
 
     # Iterate over Datasets in JSON file and add metadata records...
     for dsId, node in newJson.items():
+        log.info('=== {} ==='.format(dsId))
 
-        # Skip datasets until resume dataset is found if it exists
-        if resume and is_resuming:
-            if dsId != resume:
-                log.info('Skipping dataset: {}'.format(dsId))
-                continue
-            else:
-                is_resuming = False
-
-        log.info("Creating records for dataset: {}".format(dsId))
-
-        # Need to get existing dataset, or create new dataset (in dev)
-        ds = get_create_dataset(cfg.bf, dsId)
-
-        # Check that curation bot has manager access
-        if cfg.env=='prod' and not has_bf_access(ds):
-            log.warning('UNABLE TO UPDATE DATASET DUE TO PERMISSIONS: {}'.format(dsId))
-            continue
-
-        # Need to clear dataset records/models 
-        clear_dataset(cfg.bf, ds)
+        # Create empty cache for records/models 
         record_cache = {m: {} for m in MODEL_NAMES}
+
+        # Check if dataset exist in sync_dict
+        if dsId in sync_dict:
+            sync_rec = sync_dict[dsId]
+        else:
+            sync_rec = sync_rec_model.create_record({'ds_id': dsId})
+
+        # Check which records should be updated
+        if not force_update:
+            update_recs = {'protocol': get_recordset_hash(node['protocol']) != sync_rec.get('protocol'),
+                'term': get_recordset_hash(node['term']) != sync_rec.get('term'),
+                'researcher': get_recordset_hash(node['researcher']) != sync_rec.get('researcher'),
+                'subject': get_recordset_hash(node['subject']) != sync_rec.get('subject'),
+                'sample': get_recordset_hash(node['sample']) != sync_rec.get('sample'),
+                'award': get_recordset_hash(node['award']) != sync_rec.get('award'),
+                'summary': get_recordset_hash(node['summary']) != sync_rec.get('summary'),
+                'tag': get_recordset_hash(node['tag']) != sync_rec.get('tag')}  
+        else:
+              update_recs = {'protocol': True,
+                'term': True,
+                'researcher': True,
+                'subject': True,
+                'sample': True,
+                'award': True,
+                'summary': True,
+                'tag': True} 
 
         # Add data from the JSON file to the BF Dataset
         try:
-            # Create all records
-            add_data(cfg.bf, ds, dsId, record_cache, node)
+            if any([ update_recs[x] for x in update_recs.keys()]):
 
-            # Create all links between records
-            add_links(cfg.bf, ds, dsId, record_cache, node)
+                # Need to get existing dataset, or create new dataset (in dev)
+                ds = get_create_dataset(cfg.bf, dsId)
 
-            # Add Dataset Tags
-            add_tags(cfg.bf, ds, node['Tags'])
+                # Check that curation bot has manager access
+                if cfg.env=='prod' and not has_bf_access(ds):
+                    log.warning('UNABLE TO UPDATE DATASET DUE TO PERMISSIONS: {}'.format(dsId))
+                    continue
+
+                # Create all records
+                add_data(cfg.bf, ds, dsId, record_cache, node, sync_rec, update_recs)
+
+                # Create all links between records
+                add_links(cfg.bf, ds, dsId, record_cache, node, update_recs)
+
+                # Add Dataset tag
+                add_tags(cfg.bf, ds, node['tag'], sync_rec, update_recs)
+
+                # Update Sync Records 
+                log.info('UPDATING SYNC RECORD')
+                sync_rec.update()
+            else:
+                log.info('=== No Records changed, skipping dataset ===')
 
         except BlackfynnException:
-            log.error("Dataset {} failed to update".format(dsId))
+            log.error("Dataset {} failed to update".format(dsId))            
             failedDatasets.append(dsId)
             continue
-        finally:
-            log.info('finally')
-            log.info(cfg.db_client.environment_name)
-            db_client = cfg.db_client
-            db_client.writeCache(dsId, record_cache)
- 
-    # Iterate over Datasets in JSON grab cache and write to JSON output file
-    log.info('REBUILDING CACHE')
-    full_cache = {}
-    for dsId, node in newJson.items():
-        cur_ds = {}
-        cur_ds[dsId] = cfg.db_client.buildCache(dsId)
 
-        # ds_cache = cfg.db_client.buildCache(dsId)
-        full_cache.update(cur_ds)
-    
-    with open(cfg.json_cache_file, 'w') as json_file:
-        json.dump(full_cache, json_file)
+
+        log.info('===========================')
 
     # Timing stats
-    duration = int((time() - new_start_time) * 1000)
-    log.info("Added new metadata in {} milliseconds".format(duration))
     duration = int((time() - update_start_time) * 1000)
     log.info("Update datasets in {} milliseconds".format(duration))
 
@@ -144,6 +153,86 @@ def update_datasets(cfg, option = 'full', resume=None):
     return 
 
 ### CORE METHODS
+
+def map_target_to_json_model(target_name):
+    """Maps between platform model name and JSON model identifier
+    """
+
+    if target_name == 'protocol':
+        return 'protocol'
+    elif target_name == 'summary':
+        return 'summary'
+    elif target_name == 'animal_subject':
+        return 'subject'
+    elif target_name == 'human_subject':
+        return 'subject'
+    elif target_name == 'tag':
+        return 'tag'
+    elif target_name == 'sample':
+        return 'sample'
+    elif target_name == 'researcher':
+        return 'researcher'
+    elif target_name == 'award':
+        return 'award'
+    elif target_name == 'term':
+        return 'term'
+    
+def get_record_id_from_node(bf, ds, model, json_id, json_node, record_cache):
+
+    if json_id in record_cache[model.type]:
+        record = record_cache[model.type][json_id]
+        return record.id
+    else:
+        result = find_target_record(bf, ds, model.type, json_node)
+        if result:
+            return result['id']
+        else:
+            log.warning('Cannot find item in cache or on Platform')
+
+def find_target_record(bf, ds, target_type, item):
+    """Search for record on platform based on JSON identity
+
+    Because the JSON ID is not always stored in the platform, we need to find the record
+    by performing a search
+
+    Returns JSON representation of record
+    """
+
+    if target_type == 'award':
+        # Award can be identified by 
+        record_filter = [{
+            "model":target_type,
+            "property":"award_id",
+            "operator":"=",
+            "value":item['awardId']}]
+    elif target_type == 'sample':
+        record_filter = [{
+            "model":target_type,
+            "property":"id",
+            "operator":"=",
+            "value":item['localId']}]
+    elif target_type == 'term':
+        record_filter = [{
+            "model":target_type,
+            "property":"label",
+            "operator":"=",
+            "value":get_first(item, 'labels', '(no label)')}]
+    elif target_type == 'researcher':
+        record_filter = [{
+            "model":target_type,
+            "property":"lastName",
+            "operator":"=",
+            "value":item.get('lastName', '(no label)')},
+            {
+            "model":target_type,
+            "property":"firstName",
+            "operator":"=",
+            "value":item.get('firstName')}]
+    else:
+        return None
+        
+    out = search_for_records(bf, ds, target_type, record_filter)
+    return out
 
 def update_records(bf, ds, sub_node, model_name, record_cache, model_create_fnc, transform_fnc):
     """Creates records for particular Model in Dataset
@@ -168,7 +257,6 @@ def update_records(bf, ds, sub_node, model_name, record_cache, model_create_fnc,
         Function to transform JSON node to record property/value pairs
 
     """
-
     record_list = []
     json_id_list = []
     for record_id, sub_node in sub_node.items():
@@ -178,9 +266,33 @@ def update_records(bf, ds, sub_node, model_name, record_cache, model_create_fnc,
     model = model_create_fnc(bf, ds)
     if len(record_list):
         log.info('Creating {} new {} Records'.format(len(record_list), model_name))
-        record_cache[model_name].update(zip(json_id_list, model.create_records(record_list)))
 
-def add_data(bf, ds, dsId, record_cache, node):
+        # Add batches of max 100 records
+        n = 100
+        nr_batches = math.floor(len(record_list) /n )
+        if nr_batches > 1:
+            for i in range(0, nr_batches):
+                record_cache[model_name].update(zip(json_id_list[i*n:(i*n+n)], model.create_records(record_list[i*n:(i*n+n)])))
+
+            record_cache[model_name].update(zip(json_id_list[(i+1)*n:], model.create_records(record_list[(i+1)*n:])))
+        else:
+            record_cache[model_name].update(zip(json_id_list, model.create_records(record_list)))
+            
+        log.info('Finished creating records')
+
+    else:
+        log.info('No records to be created')
+
+def get_recordset_hash(node):
+    """Return hash of current json node
+
+    This method is used to represent a state of record set within the dataset. If the hash between 
+    the new json file is different from the one associated with what is on the platfom, some of the records
+    have been altered. 
+    """
+    return str(fp(json.dumps(node, sort_keys=True)))
+    
+def add_data(bf, ds, dsId, record_cache, node, sync_rec, update_recs):
     """Iterate over specific models and add records
 
     This method is called as the core method to add records to datasets.
@@ -197,22 +309,74 @@ def add_data(bf, ds, dsId, record_cache, node):
         Map of all ids to records in current dataset
     node: Dict
         JSON sub_node for dataset
+    sync_rec: Dict
+        Dict with hash values of each record set per model that is synced
 
     """
 
     # Get Models
     models = ds.models()
 
-    # Adding all records without setting linked properties and relationships
-    add_protocols(bf, ds, record_cache, node['Protocols'])
-    add_terms(bf, ds, record_cache, node['Terms'])
-    add_researchers(bf, ds, record_cache, node['Researcher'])
-    add_subjects(bf, ds, record_cache, node['Subjects'])
-    add_samples(bf, ds, record_cache, node['Samples'])
-    add_awards(bf, ds, record_cache, node['Awards'])
-    add_summary(bf, ds, record_cache, node['Resource'])
 
-def add_links(bf, ds, dsId, record_cache, node):
+    # Adding all records without setting linked properties and relationships
+    if update_recs['protocol']:
+        log.info('Updating protocol')
+        clear_model(bf, ds, 'protocol')
+        add_protocols(bf, ds, record_cache, node['protocol'])
+        sync_rec._set_value('protocol', get_recordset_hash(node['protocol']))
+    else:
+        log.info('Skipping protocol')
+    
+    if update_recs['term']:
+        log.info('Updating term')
+        clear_model(bf, ds, 'term')
+        add_terms(bf, ds, record_cache, node['term'])
+        sync_rec._set_value('term', get_recordset_hash(node['term']))
+    else:
+        log.info('Skipping term')
+
+    if update_recs['researcher']:
+        log.info('Updating researcher')
+        clear_model(bf, ds, 'researcher')
+        add_researchers(bf, ds, record_cache, node['researcher'])
+        sync_rec._set_value('researcher', get_recordset_hash(node['researcher']))
+    else:
+        log.info('Skipping researcher')
+
+    if update_recs['subject']:
+        log.info('Updating subject')
+        clear_model(bf, ds, 'animal_subject')
+        clear_model(bf, ds, 'human_subject')
+        add_subjects(bf, ds, record_cache, node['subject'])
+        sync_rec._set_value('subject', get_recordset_hash(node['subject']))
+    else:
+        log.info('Skipping subject')
+    
+    if update_recs['sample']:
+        log.info('Updating sample')
+        clear_model(bf, ds, 'sample')
+        add_samples(bf, ds, record_cache, node['sample'])
+        sync_rec._set_value('sample', get_recordset_hash(node['sample']))
+    else:
+        log.info('Skipping sample')
+
+    if update_recs['award']:
+        log.info('Updating award')
+        clear_model(bf, ds, 'award')
+        add_awards(bf, ds, record_cache, node['award'])
+        sync_rec._set_value('award', get_recordset_hash(node['award']))
+    else:
+        log.info('Skipping award')
+
+    if update_recs['summary']:
+        log.info('Updating summary')
+        clear_model(bf, ds, 'summary')
+        add_summary(bf, ds, record_cache, node['summary'])
+        sync_rec._set_value('summary', get_recordset_hash(node['summary']))
+    else:
+        log.info('Skipping summary')
+
+def add_links(bf, ds, dsId, record_cache, node, update_recs):
     """Iterate over specific models and add property links and relationships
 
     This method is called as the core method to add property links and relationships to records.
@@ -231,11 +395,19 @@ def add_links(bf, ds, dsId, record_cache, node):
         JSON sub_node for dataset
 
     """
-    
+
     # Adding all linked properties and relationships to records
-    add_summary_links(bf,ds, record_cache, node['Resource'])
-    add_subject_links(bf, ds, record_cache, node['Subjects'])
-    add_sample_links(bf,ds, record_cache, node['Samples'])
+    if update_recs['summary'] or update_recs['term'] or update_recs['award'] or update_recs['researcher']:
+        log.info('Adding links to summary record')
+        add_summary_links(bf, ds, record_cache, 'summary', node)
+
+    if update_recs['subject'] or update_recs['term'] :
+        log.info('Adding links to subject record')
+        add_subject_links(bf, ds, record_cache, 'subject', node)
+
+    if update_recs['sample'] or update_recs['term'] or update_recs['subject']: 
+        log.info('Adding links to sample record')
+        add_sample_links(bf,ds, record_cache, 'sample', node)
 
 def add_random_terms(ds, label, record_cache):
     """Adding a record for a term that is not defined in TTL
@@ -267,7 +439,7 @@ def add_random_terms(ds, label, record_cache):
     record_cache['term'][label] = record
     return record
 
-def add_record_links(ds, record_cache, model, record, links):
+def add_record_links(bf, ds, record_cache, model, record_id, links, ds_node):
     """Populate linked Properties for single record
 
     This method populates linked properties in a record provided to method.
@@ -280,15 +452,17 @@ def add_record_links(ds, record_cache, model, record, links):
         Dictionary mapping record identifier to record
     model: BF_Model
         Model of the record that is updated
-    record: BF_Record
-        Record that is being updated
+    record_id: String
+        ID of Record that is being updated
     links: Array [ {name:  Node }]
         linked values (structured {name: identifier})
     bf: Blackfynn Session
+    ds_node: Dict
+        Dict from JSON with current dataset objects (for lookup)
 
     """
 
-    log.info('Adding Record Linked Properties for {}'.format(record.id))
+    log.info('Adding Record Linked Properties for {}-{}'.format(model, record_id))
     payload =  []
     for name, value in links.items():
         # name: name of property to add, 
@@ -304,44 +478,59 @@ def add_record_links(ds, record_cache, model, record, links):
         else:
             raise(Exception('Incorrect type for links.'))
 
-        terms = None
+        # terms = None
         linkedProp = model.linked[name]
 
         # Find model name of the linked property target
         targetType = get_bf_model(ds, linkedProp.target).type
 
         # We can have an array of links per property 
+        linked_rec_id = None
         for item in valueList:
             # Check if value is in the record cache
             if item in record_cache[targetType]:
                 # Record in cache --> exists in platform as a record
-                linkedRec = record_cache[targetType][item]
+                linked_rec = record_cache[targetType][item]
+                linked_rec_id = linked_rec.id
             else:
                 # Record not in cache --> check if term --> if so, add new term,
-                # if not --> throw warning and don't link entry
+                # if not --> search for record on platfom
                 if targetType == 'term':
-                    linkedRec = add_random_terms(ds, item, record_cache)
+                    linked_rec = add_random_terms(ds, item, record_cache)
+                    linked_rec_id = linked_rec.id
                 else:
-                    log.warning('Unable to link to non-existing record {}'.format(targetType))
-                    continue
+                    json_model_name = map_target_to_json_model(targetType)
+
+                    try:
+                        linked_rec = find_target_record(bf, ds, targetType, ds_node[json_model_name][item])
+                        linked_rec_id = linked_rec['id']
+                    except:
+                        log.warning('** UNABLE to link to non-existing record {}:{}'.format(targetType, item))
+                        continue
+                    
+                    # if not linked_rec:
+                    #     log.warning('Unable to link to non-existing record {}'.format(targetType))
+                    #     continue
             
             # Try to link record to property
             # try:
             payload.append({
                 "name": targetType,
                 "schemaLinkedPropertyId" : linkedProp.id,
-                "to": linkedRec.id    
+                "to": linked_rec_id    
             })
-                # record.add_linked_value(linkedRec.id, linkedProp)
+                # record.add_linked_value(linked_rec.id, linkedProp)
             # except Exception as e:
             #     log.error("Failed to add linked value '{}'='{}' to record {} with error '{}'".format(name, value, record, str(e)))
             #     raise BlackfynnException(e)
         
-    log.info("Updating Linked Properties: {}".format(payload))   
+    log.debug("Updating Linked Properties: {} : record ID: {}".format(payload, record_id))   
     if len(payload): 
-        model._api.concepts.instances.create_link_batch(ds, model, record, payload)
+        create_links(bf, ds, model.id, record_id, payload)
+
+        # model._api.concepts.instances.create_link_batch(ds, model, record, payload)
         
-def add_record_relationships(ds, record_cache, record, relationships):
+def add_record_relationships(bf, ds, record_cache, model, record, relationships, ds_node):
     
     log.info('Adding Record Relationships for {}'.format(record.id))
     # Iterate over all relationships in a record
@@ -349,6 +538,8 @@ def add_record_relationships(ds, record_cache, record, relationships):
         targetRecordList = []
 
         targetModel = value['type']
+
+        target_model_instance = get_bf_model(ds, targetModel)
         value = value['node']
 
         valueList = None
@@ -368,15 +559,49 @@ def add_record_relationships(ds, record_cache, record, relationships):
             if item in record_cache[targetModel]:
                 targetRecordList.append(record_cache[targetModel][item])
             elif targetModel == 'term':
-                linkedRec = add_random_terms(ds, item, record_cache)
-                targetRecordList.append(linkedRec)
+                linked_rec = add_random_terms(ds, item, record_cache)
+                targetRecordList.append(linked_rec)
             else:
-                log.warning('Unable to relate to non-existing record {}'.format(targetModel))
-                continue    
+                json_model_name = map_target_to_json_model(targetModel)
+                log.info('SEARCHING FOR RECORD TO ADD RELATIONSHIP - {} --> {}'.format(model, targetModel))
+
+                try:
+                    linked_rec = find_target_record(bf, ds, targetModel, ds_node[json_model_name][item])
+                    linked_rec_id = linked_rec['id']
+                    targetRecordList.append(target_model_instance.get(linked_rec_id))
+                except:
+                    log.warning('** UNABLE to link to non-existing record {}:{}'.format(targetModel, item))
+                    continue
 
         # Add to list
         if len(targetRecordList) > 0:
             record.relate_to(targetRecordList, name)
+
+def add_tags(bf, ds, sub_node, sync_rec, update_recs):
+    """Adding Dataset Tags based on the Tags defined in the TTL file
+
+    Parameters
+    ----------
+    ds: BF_Dataset
+        Dataset that contains the records
+    sub_node: [String]
+        Representation of tags in JSON file
+    bf: Blackfynn Session
+    """
+
+    if update_recs['tag']:
+        log.info("Adding tag...")
+
+        tags = sub_node
+        if not tags:
+            tags = ['SPARC']
+            
+        ds.tags = list(set(tags))
+        ds.update()
+
+        sync_rec._set_value('tag', get_recordset_hash(sub_node))
+    else:
+        print('Skipping tag')
 
 ### MODEL SPECIFIC METHODS
 
@@ -440,30 +665,6 @@ def add_terms(bf, ds, record_cache, sub_node):
         }
 
     update_records(bf, ds, sub_node, "term", record_cache,  create_model, transform)
-
-def add_tags(bf, ds, sub_node):
-    """Adding Dataset Tags based on the Tags defined in the TTL file
-
-    Parameters
-    ----------
-    ds: BF_Dataset
-        Dataset that contains the records
-    sub_node: [String]
-        Representation of tags in JSON file
-    bf: Blackfynn Session
-    """
-
-    log.info("Adding Tags...")
-
-    tags = sub_node
-    if not tags:
-        tags = ['SPARC']
-        
-    print(tags)
-    ds.tags = list(set(tags))
-
-    print(ds.tags)
-    ds.update()
 
 def add_researchers(bf, ds, record_cache, sub_node):
     log.info("Adding researchers...")
@@ -626,9 +827,11 @@ def add_subjects(bf, ds, record_cache, sub_node):
         animal_model = create_animal_model(bf, ds)
         record_cache['animal_subject'].update(zip(animal_json_id_list,animal_model.create_records(animal_record_list)))
 
-def add_subject_links(bf, ds, record_cache, sub_node): 
+def add_subject_links(bf, ds, record_cache, sub_node_name, ds_node): 
 
+    sub_node = ds_node[sub_node_name]
     model = None
+
     subtype = sub_node.get('animalSubjectIsOfSpecies')
     try:
         if subtype == 'homo sapiens':
@@ -660,14 +863,15 @@ def add_subject_links(bf, ds, record_cache, sub_node):
 
     # Iterate over multiple subject records, single dataset
     for subj_id, subj_node in sub_node.items():
-        record = get_record_by_id(subj_id, model, record_cache)
+        record_id = get_record_id_from_node(bf, ds, model, subj_id, sub_node, record_cache)
+        # record = get_record_by_id(subj_id, model, record_cache)
 
         if subtype == 'homo sapiens':
             links = transform_human(subj_node, subj_id)
         else:
             links = transform_animal(subj_node, subj_id)
 
-        add_record_links(ds, record_cache, model, record, links)
+        add_record_links(bf, ds, record_cache, model, record_id, links, ds_node)
 
 def add_samples(bf, ds, record_cache, sub_node):
     log.info("Adding samples to dataset: {}".format(ds.id))
@@ -676,8 +880,8 @@ def add_samples(bf, ds, record_cache, sub_node):
 
         return get_create_model(bf, ds, 'sample', 'Sample',
             schema=[
-                ModelProperty('localId', 'ID', title=True),
-                ModelProperty('label', 'Label'),
+                ModelProperty('label', 'Label', title=True),
+                ModelProperty('id', 'id'),
                 ModelProperty('description', 'Description'), # list
                 ModelProperty('hasAssignedGroup', 'Group', data_type=ModelPropertyEnumType(
                     data_type=str, multi_select=True)), # list
@@ -694,19 +898,21 @@ def add_samples(bf, ds, record_cache, sub_node):
 
     def transform(record_id, sub_node):
         return {
-            'localId': sub_node.get('localId', '(no label)'),
+            'id': record_id,
             'description': get_first(sub_node, 'description'),
             'hasAssignedGroup': sub_node.get('hasAssignedGroup'),
             'hasDigitalArtifactThatIsAboutIt': sub_node.get('hasDigitalArtifactThatIsAboutIt'),
             'extractedFrom':sub_node.get('raw/wasExtractedFromAnatomicalRegion'),
-            'label': sub_node.get('label'),
+            'label': sub_node.get('localId'),
             'localExecutionNumber': sub_node.get('localExecutionNumber'),
             'providerNote': sub_node.get('providerNote')
         }
 
     update_records(bf,ds,sub_node, "sample", record_cache,  create_sample_model, transform)
 
-def add_sample_links(bf, ds, record_cache, sub_node):
+def add_sample_links(bf, ds, record_cache, sub_node_name, ds_node):
+
+    sub_node = ds_node[sub_node_name]
 
     # Skip if Model is not defined.
     if get_bf_model(ds, 'sample') is None:
@@ -723,6 +929,7 @@ def add_sample_links(bf, ds, record_cache, sub_node):
         elif 'animal_subject' in models:
             subModel = models['animal_subject']
         else:
+            clear_model(bf, ds, 'subject')
             subModel = get_create_model(bf, ds, 'subject', 'Subject',
                 schema=[
                     ModelProperty('localId', 'ID', title=True)
@@ -759,15 +966,17 @@ def add_sample_links(bf, ds, record_cache, sub_node):
     log.info('Adding links')
     for sampleId, subj_node in sub_node.items():
         log.info('{}'.format(sampleId))
-        record = get_record_by_id(sampleId, model, record_cache)
+        # record = get_record_by_id(sampleId, model, record_cache)
+        record_id = get_record_id_from_node(bf, ds, model, sampleId, subj_node, record_cache)
         out = transform_sample(subj_node)
 
         # Adding Linked Properties
-        add_record_links(ds, record_cache, model, record, out['links'])
+        add_record_links(bf, ds, record_cache, model, record_id, out['links'], ds_node)
     
         # Adding Relationships
+        record = model.get(record_id) #TODO: Remove this
         rels = out['relationships']
-        add_record_relationships(ds, record_cache, record, out['relationships'])
+        add_record_relationships(bf, ds, record_cache, model, record, out['relationships'], ds_node)
 
         # Associate files with Samples
         if sub_node.get('hasDigitalArtifactThatIsAboutIt') is not None:
@@ -859,8 +1068,9 @@ def add_summary(bf, ds, record_cache, sub_node):
         model = create_model(bf, ds)
         record_cache['summary'].update(zip(json_id_list, model.create_records(record_list)))
 
-def add_summary_links(bf, ds, record_cache, sub_node):
+def add_summary_links(bf, ds, record_cache, sub_node_name, ds_node):
 
+    sub_node = ds_node[sub_node_name]
     model = get_bf_model(ds, 'summary')
 
     def updateModel(bf, ds):
@@ -887,13 +1097,15 @@ def add_summary_links(bf, ds, record_cache, sub_node):
     # Add Property links to model
     model = updateModel(bf, ds)
 
-    record = get_record_by_id('summary', model, record_cache)
+    record_id = get_record_id_from_node(bf, ds, model, 'summary', sub_node, record_cache  ) 
+    # = get_record_by_id('summary', model, record_cache)
     out = transform(sub_node)
-    add_record_links(ds, record_cache, model, record, out['links'] )
+    add_record_links(bf, ds, record_cache, model, record_id, out['links'], ds_node )
 
     # Create relationships
     rels = out['relationships']
-    add_record_relationships(ds, record_cache, record, out['relationships'])
+    record = model.get(record_id) #TODO update to use ID only
+    add_record_relationships(bf, ds, record_cache, model, record, out['relationships'], ds_node)
 
 def add_awards(bf, ds, record_cache, sub_node):
     log.info("Adding awards...")

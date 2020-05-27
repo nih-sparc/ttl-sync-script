@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
-import boto3
+# import boto3
 import os
 import structlog
 from blackfynn import Blackfynn
-from base import DynamoDBClient, SSMClient
-from botocore.exceptions import ClientError
+# from base import DynamoDBClient, SSMClient
+# from botocore.exceptions import ClientError
 import logging
 
 log = logging.getLogger(__name__)
@@ -40,14 +40,14 @@ class Configs(object):
 
     def __init__(self, env):
         # AWS configurations
-        aws_key = os.environ.get("AWS_PUBLIC_KEY", "aws-key")
-        aws_secret = os.environ.get("AWS_SECRET_KEY", "aws-secret")
-        dynamodb_endpoint = os.environ.get("DYNAMODB_ENDPOINT", "http://localhost:4569")
-        table_arn = os.environ.get("SPARC_METADATA_DYNAMODB_TABLE_ARN", "sparc-metadata-table-arn")
-        table_id = os.environ.get("SPARC_METADATA_DYNAMODB_TABLE_ID", "prod-sparc-metadata-table-use1")
-        aws_region = os.environ.get("AWS_REGION_NAME", "us-east-1")
-        table_partition_key = "datasetId"
-        table_sort_key = "recordId"
+        # aws_key = os.environ.get("AWS_PUBLIC_KEY", "aws-key")
+        # aws_secret = os.environ.get("AWS_SECRET_KEY", "aws-secret")
+        # dynamodb_endpoint = os.environ.get("DYNAMODB_ENDPOINT", "http://localhost:4569")
+        # table_arn = os.environ.get("SPARC_METADATA_DYNAMODB_TABLE_ARN", "sparc-metadata-table-arn")
+        # table_id = os.environ.get("SPARC_METADATA_DYNAMODB_TABLE_ID", "prod-sparc-metadata-table-use1")
+        # aws_region = os.environ.get("AWS_REGION_NAME", "us-east-1")
+        # table_partition_key = "datasetId"
+        # table_sort_key = "recordId"
 
         log.info('GETTING CONFIG FOR: {}'.format(env))
 
@@ -61,16 +61,19 @@ class Configs(object):
             blackfynn_api_token = os.environ.get("BLACKFYNN_API_TOKEN")
             blackfynn_api_secret = os.environ.get("BLACKFYNN_API_SECRET")
             
-            self.ssm_path = "/{}/sparc-tools/".format(env)
-            self.ssm = SSMClient(aws_region, "dev", self.ssm_path, "http://localhost:4583")
+            # self.ssm_path = "/{}/sparc-tools/".format(env)
+            # self.ssm = SSMClient(aws_region, "dev", self.ssm_path, "http://localhost:4583")
 
             self.bf = Blackfynn( api_token=blackfynn_api_token, 
                         api_secret=blackfynn_api_secret, 
                         host=blackfynn_host)
 
-            self.db_client =  DynamoDBClient(aws_region, 'dev', table_partition_key, "http://localhost:4569",table_id, table_sort_key)
+            # self.org_int_id = next(item for item in bf.organizations() if item.name == bf.context.name)
+            
 
-            log.info("ENV NAME: {}".format(self.db_client.environment_name))
+            # self.db_client =  DynamoDBClient(aws_region, 'dev', table_partition_key, "http://localhost:4569",table_id, table_sort_key)
+
+            # log.info("ENV NAME: {}".format(self.db_client.environment_name))
 
         elif env == "prod":
 
@@ -82,15 +85,17 @@ class Configs(object):
             blackfynn_api_token = os.environ.get("BLACKFYNN_API_TOKEN")
             blackfynn_api_secret = os.environ.get("BLACKFYNN_API_SECRET")
             
-            self.ssm_path = "/{}/sparc-tools/".format(env)
-            self.ssm = SSMClient(aws_region, "dev", self.ssm_path, "http://localhost:4583")
+            # self.ssm_path = "/{}/sparc-tools/".format(env)
+            # self.ssm = SSMClient(aws_region, "dev", self.ssm_path, "http://localhost:4583")
 
             # self.session = boto3.Session(region_name = aws_region)
             self.bf = Blackfynn( api_token=blackfynn_api_token, 
                         api_secret=blackfynn_api_secret, 
                         host=blackfynn_host)
 
-            self.db_client =  DynamoDBClient(aws_region, env, table_partition_key, "http://localhost:4569",table_id, table_sort_key)
+            # self.org_int_id = next(item for item in bf.organizations() if item.name == bf.context.name)
+
+            # self.db_client =  DynamoDBClient(aws_region, env, table_partition_key, "http://localhost:4569",table_id, table_sort_key)
 
 
 
