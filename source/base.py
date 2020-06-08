@@ -10,6 +10,8 @@ from time import sleep
 import json
 import copy
 
+from rdflib import BNode, Graph, URIRef, term
+
 
 log = logging.getLogger(__name__)
 
@@ -66,7 +68,7 @@ def has_bf_access(ds):
     
     return False
 
-def parse_unit_value(node, name, model_unit = 'None'):
+def parse_unit_value(node, name, model_unit = 'None', is_num=True):
     """Method that returns a value that is associated with a unit
 
     Method does the following:
@@ -97,7 +99,7 @@ def parse_unit_value(node, name, model_unit = 'None'):
 
     # Check is coded as unit or string
     if isinstance(node[name], dict):
-        value = node[name]['value'][0]
+        value = node[name]['value']
         unit = node[name]['unit']
     else:
         # assume string is "value unit"
@@ -110,12 +112,19 @@ def parse_unit_value(node, name, model_unit = 'None'):
     if unit != model_unit:
         log.warning('Unit mismatch between record and model {} - {}'.format(unit, model_unit))
 
+    if is_num:
+        try:
+            value = float(value)
+        except ValueError:
+            log.warning("Cannot parse float value even though dataset has float values for Measurement")
+            value = None
+    else:
+        value = '{} {}'.format(value, unit)
     # try converting to float
-    try:
-        value = float(value)
-    except:
-        log.warning('Cannot cast as Numeric: {} - {}'.format(name,value))
-        value = None
+    # try:
+    #     value = float(value)
+    # except:
+    #     value = value
 
     # Return value
     return value
@@ -129,7 +138,7 @@ def get_as_list(subNode, key):
             value = [subNode.get(key)]
     return value
 
-def iri_lookup(iri, iriCache=None):
+def iri_lookup(g, iri, iriCache=None):
     'Retrieve data about a SPARC term'
     skipIri = (
         'http://uri.interlex.org',
@@ -141,9 +150,41 @@ def iri_lookup(iri, iriCache=None):
         'http://dx.doi.org/',
         'https://scicrunch.org/resolver/',
         'https://www.protocols.io/')
+    
+    apiKey = '8a72SmzPaTtrail8ySNWgtSTuJgMyAtZ'
 
     if iriCache is None:
         iriCache = {}
+
+    # Check if defined in TTL file
+    if (URIRef(iri), None, URIRef('http://www.w3.org/2002/07/owl#NamedIndividual')) in g:
+        if (URIRef(iri), URIRef('http://www.w3.org/2000/01/rdf-schema#label'), None) in g:
+
+            # URIRef is defined elsewhere in the TTL File
+
+            # URI is an RRID --> Should be defined in TTL
+            if iri.startswith('https://scicrunch.org/resolver/RRID:'):
+                out = g.objects(subject= URIRef(iri), predicate=URIRef('http://www.w3.org/2000/01/rdf-schema#label'))
+                for v in out:
+                    result_dict = {'iri': iri,
+                        'labels': [v],
+                        'curie': strip_iri(iri)}
+                    iriCache[iri] = result_dict
+                return result_dict
+
+            # URI is an UBERON term --> is defined, but get more details from scicrunch
+            elif iri.startswith('http://purl.obolibrary.org/obo/UBERON_'):
+                url = 'https://scicrunch.org/api/1/sparc-scigraph/vocabulary/id/{}?key={}'.format(
+                    quote_plus(iri), apiKey)
+                r = requests.get(url)
+                if r.status_code == 200:
+                    log.debug('SciCrunch lookup successful: %s', iri)
+                    iriCache[iri] = r.json()
+                    return r.json()
+                else:
+                    log.error('SciCrunch HTTP Error: %d %s iri= %s', r.status_code, r.reason, iri)
+
+
     if any(iri.startswith(s) for s in skipIri):
         return strip_iri(iri.strip())
     if iri in iriCache:
@@ -161,15 +202,14 @@ def iri_lookup(iri, iriCache=None):
     #         raise Exception('iriLookup HTTP Error: %d %s\n url= %s' % (r.status_code, r.reason, url))
 
     # use SciCrunch API
-    apiKey = '8a72SmzPaTtrail8ySNWgtSTuJgMyAtZ'
-    url = 'https://scicrunch.org/api/1/sparc-scigraph/vocabulary/id/{}?key={}'.format(
-        quote_plus(iri), apiKey)
-    r = requests.get(url)
-    if r.status_code == 200:
-        log.debug('SciCrunch lookup successful: %s', iri)
-        iriCache[iri] = r.json()
-        return r.json()
-    log.error('SciCrunch HTTP Error: %d %s iri= %s', r.status_code, r.reason, iri)
+    # url = 'https://scicrunch.org/api/1/sparc-scigraph/vocabulary/id/{}?key={}'.format(
+    #     quote_plus(iri), apiKey)
+    # r = requests.get(url)
+    # if r.status_code == 200:
+    #     log.debug('SciCrunch lookup successful: %s', iri)
+    #     iriCache[iri] = r.json()
+    #     return r.json()
+    # log.error('SciCrunch HTTP Error: %d %s iri= %s', r.status_code, r.reason, iri)
 
 def get_first(node, name, default=None):
     try:
@@ -183,6 +223,13 @@ def contains(list, filter):
         if filter(x):
             return x
     return False
+
+def is_number(string):
+    try:
+        float(string)
+        return True
+    except ValueError:
+        return False
 
 ### Parsing JSON data:
 def get_json():
@@ -264,7 +311,8 @@ def strip_iri(iri):
 
         'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
         'http://www.w3.org/2000/01/rdf-schema#',
-        'http://purl.org/dc/elements/1.1/'
+        'http://purl.org/dc/elements/1.1/',
+        'https://scicrunch.org/resolver/RRID:'
 
         )
 

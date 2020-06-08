@@ -1,5 +1,14 @@
 # sparc-tools
-Scripts and tools for the SPARC DAT-Core pipeline
+Method to synchronize metadata from TTL File into Blackfynn Platform. This repository contains a command line application that can get the latest SPARC TTL file and update the metadata on the Blackfynn platform to match that in the TTL file. 
+
+The tool contains three commands:
+`ttl_updata get-ttl`
+`ttl_update to-json`
+`ttl_update update`
+
+for more information about these commands, look at the help for each of the commands (e.g. `ttl_update get-ttl --help`)
+
+These reflect the three stages in which the update is carried out. Step 1 is to get the latest TTL file. Step 2 is to align the contents of the TTL file to the schema that is implemented in the Blackfynn platform using a standardized JSON schema. Step 3 is to parse the JSON schema and update the platform. A hash of each component (model) for each dataset is created based on the JSON representation and stored on the platform such that the script can skip updating specific records if the JSON representation of those records are unchanged between TTL updates.
 
 ## Setting up Locally
 
@@ -8,18 +17,6 @@ Setup your local python virtual environment
 
 `python3 -m venv venv`
 `source ./venv/bin/activate`
-
-### Install and run Docker
-You need to have Docker installed on you computer as localstack runs witin a docker container
-
-### Setup localstack
-With your virtual environment activated install localstack.  The script is written to leverage DynamoDB to store a mapping between the TTL ids and the Blackfynn Ids for providing the ability to synchronize the metadata. Currently it assumes the user mocks DynamoDB using localstack. 
-
-`pip3 install localstack/localstack`
-
-Run localstack and make super proper ports are open:
-
-`docker run -p 4569:4569 localstack/localstack`
 
 ### Setup Environment Variables
 The script relies on a certain number of environment variables:
@@ -31,34 +28,3 @@ The script relies on a certain number of environment variables:
 There is a CLI that can be used to interact with the functionality using (Click)[https://click.palletsprojects.com/en/7.x/] and is bundled with (Setuptools)[https://click.palletsprojects.com/en/7.x/setuptools/#setuptools-integration]. To install the package, run:
 
 `pip install --editable .`
-
-
-## Running against Development Env
-
-
-## Running against Production
-
-
-
-
-
-
-## Setting up the script
-
-### Setting up a Sparc admin account
-The first thing to set up is an access to the aws-sparc AWS account as an admin. Please contact the SRE team to do so.
-
-### Creating the virtual environment
-The first time you use this repo, you will have to create a virtual environment to run the script. You can do so by typing `make venv`
-
-
-
-
-
-
-
-## Using the script
-
-### Assuming sparc admin role
-In order to use the script locally to update the metadata in production, one needs to assume the role of the sparc admin. The cli tools `assume-role` will do just that.
-Type `assume-role sparc admin`  and use your MFA code generator to answer the prompt

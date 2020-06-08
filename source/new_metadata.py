@@ -50,26 +50,48 @@ def addEntry(output, datasetId):
         {'summary':{},'contributor':{},'researcher':{},'subject':{},'protocol':{},'term':{},'sample':{}, 'award': {}, 'tag': []})
 
 def parseMeasure(g, node, values):
-    for v in g.objects(subject=node):
-        if isinstance(v, term.Literal):
-            if v.datatype in (
-                             term.URIRef('http://www.w3.org/2001/XMLSchema#integer'),
-                             term.URIRef('http://www.w3.org/2001/XMLSchema#double')):
-                values['value'].append(str(v))
-            else:
-                log.warning("Literal '%s' has unrecognized datatype: '%s'", v, v.datatype)
-        elif isinstance(v, term.URIRef):
-            if v in (
-                    term.URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Measurement'),
-                    term.URIRef('http://www.w3.org/2000/01/rdf-schema#Datatype'),
-                    term.URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#nil')):
-                continue
-            values['unit'] = strip_iri(v)
-        elif isinstance(v, term.BNode):
-            parseMeasure(g, v, values)
-        else:
-            log.error('Bad measurement value gotten: %s', v)
 
+    if (node, None, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Measurement')) in g:
+        # Current BNode is a measurement
+        # preds = g.predicates(subject=node)
+        # for v in preds:
+        #     print('pred: {}'.format(v))
+        #     values['unit'] = strip_iri(v)
+        
+        unit = strip_iri(g.value(subject=node, predicate=URIRef('http://uri.interlex.org/temp/uris/hasUnit')))
+        values['unit'] = unit
+            
+        value = g.value(subject=node, predicate=URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#value'))
+        values['value'] = str(value)
+
+        print("Measurement: {} {}".format(values['value'],values['unit']))
+
+    elif (node, None, URIRef('http://www.w3.org/2000/01/rdf-schema#Datatype')) in g:
+            # Current BNode is a rdfs:Datatype
+
+            unit = strip_iri(g.value(subject=node, predicate=URIRef('http://www.w3.org/2002/07/owl#onDatatype')))
+            values['unit'] = strip_iri(unit)
+
+            value = g.value(subject=node, predicate=URIRef('http://www.w3.org/2002/07/owl#withRestrictions'))
+            
+            # Get Lower Bound Range
+            first = g.value(subject=value, predicate=URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#first'))
+            min_incl = g.value(subject=first, predicate=URIRef('http://www.w3.org/2001/XMLSchema#minInclusive'))
+            
+            #Get Higher Bound Range
+            rest = g.value(subject=value, predicate=URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#rest'))
+            rest_first = g.value(subject=rest, predicate=URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#first'))
+            max_incl = g.value(subject=rest_first, predicate=URIRef('http://www.w3.org/2001/XMLSchema#maxInclusive'))
+
+            values['value'] = "{}-{}".format(str(min_incl), str(max_incl))
+
+
+            print("value: {}-{} {}".format(min_incl, max_incl,unit))
+
+    else:
+        print('Not a measurement')
+
+    # print('Exist Measurement')
     return values
 
 
@@ -101,11 +123,15 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
         return
 
     if isinstance(o, term.URIRef):
-        value = iri_lookup(o.strip(), iriCache)
+        value = iri_lookup(g, o.strip(), iriCache)
         if value:
             if isinstance(value, dict) and 'curie' in value:
                 ds['term'][value['curie']] = value
                 value = value['curie']
+            # if isinstance(value, dict) and 'iri' in value:
+            #     key = strip_iri(value['iri'])
+            #     ds['term'][key] = value
+            #     value = key
 
             if key in arrayProps:
                 array = data.setdefault(key, [])
@@ -133,7 +159,7 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
                 data[key] = value
 
     elif isinstance(o, term.BNode):
-        data[key] = parseMeasure(g, o, {'value': [], 'unit': ''})
+        data[key] = parseMeasure(g, o, {'value': '', 'unit': ''})
 
     else:
         raise Exception('Unknown RDF term: %s' % type(o))
@@ -228,7 +254,7 @@ def getTags(gNew, gDelta, output, iriCache):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
         if m:
             if isinstance(o, term.URIRef):
-                t = iri_lookup(o, iriCache)
+                t = iri_lookup(gNew, o, iriCache)
                 if t:
                     tag = t['labels'][0]
                 else:
@@ -241,18 +267,12 @@ def getTags(gNew, gDelta, output, iriCache):
                 output[datasetId]['tag'].append(tag)
 
 
-def buildJson(_type):
+def buildJson():
     log.info('Building new meta data json')
-    if _type == 'diff':
-        outputFile = JSON_METADATA_NEW
-        gOld = Graph().parse(TTL_FILE_OLD, format='turtle')
-        gNew = Graph().parse(TTL_FILE_NEW, format='turtle')
-    elif _type == 'full':
-        outputFile = JSON_METADATA_FULL
-        gOld = Graph()
-        gNew = Graph().parse(TTL_FILE_NEW, format='turtle')
-    else:
-        raise Exception("Must use option 'diff' or 'full'")
+
+    outputFile = JSON_METADATA_FULL
+    gOld = Graph()
+    gNew = Graph().parse(TTL_FILE_NEW, format='turtle')
     
     gDelta = gNew - gOld # contains expired triples
     gIntersect = gNew & gOld # contains triples shared between both graphs
@@ -263,8 +283,6 @@ def buildJson(_type):
     # gDeprecated.serialize(destination='diff_graph_deprecated.ttl', format='turtle')
 
     # gDelta.serialize(destination='diff_graph.ttl', format='turtle')
-
-    
 
     # Set namespace prefixes:
     log.info('Setting namespace prefixes')

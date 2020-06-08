@@ -25,25 +25,23 @@ def get_ttl():
     out = metadata_versions.getLatestTTLVersion()
 
 @click.command()
-@click.argument('method', nargs=1)
-def to_json(method):
-    if method in ['full','diff']:
-        out = new_metadata.buildJson(method)
-    else:
-        log.warning('Incorrect argument (''full'', ''diff'')')
+def to_json():
+    out = new_metadata.buildJson()
 
 @click.command()
 @click.argument('env', nargs=1)
 @click.argument('id', nargs=-1)
 @click.option('-f', '--force_update', default=False, type=bool)
-def update(env, id=None, force_update=False):
+@click.option('-fm', '--force_model', default='' )
+
+def update(env, id=None, force_update=False, force_model=''):
     if env in ['prod', 'dev']:
         log.info('Starting UPDATE for: {}'.format(env))
         cfg = Configs(env)
         if id:
-            out = update_datasets(cfg, id[0], force_update)
+            out = update_datasets(cfg, id[0], force_update, force_model)
         else:
-            out = update_datasets(cfg, 'full', force_update)
+            out = update_datasets(cfg, 'full', force_update, force_model)
     else:
         log.warning('Incorrect argument (''prod'', ''dev'')')
 

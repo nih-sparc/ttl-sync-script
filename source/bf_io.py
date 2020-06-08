@@ -61,10 +61,14 @@ def search_for_records(bf, ds, model_name, filters):
         "datasets": [ds.int_id],
         "filters": filters}
 
-    response = bf._api._post(host = host, 
-        base="models/v2/", 
-        endpoint="organizations/{}/search/records".format(org_int_id),
-        json=payload)
+    try:
+        response = bf._api._post(host = host, 
+            base="models/v2/", 
+            endpoint="organizations/{}/search/records".format(org_int_id),
+            json=payload)
+    except:
+        log.warning("Something went wrong with searching on platform.")
+        return None
 
     rec = None
     if response['records']:
@@ -82,6 +86,7 @@ def search_for_records(bf, ds, model_name, filters):
 
 ### Create many links
 def create_links(bf, dataset, model_id, record_id, payload):
+
         dataset_id = dataset.id
         json = {"data": payload}
 
