@@ -28,7 +28,7 @@ class Configs(object):
     }
 
     # SPARC Tools configurations
-    working_directory = os.getcwd()
+    working_directory = '/tmp'
     base_url = "https://cassava.ucsd.edu/sparc/archive/exports/"
     json_metadata_expired = "{}/expired_metadata.json".format(working_directory)
     json_metadata_full = "{}/full_metadata.json".format(working_directory)
@@ -37,17 +37,9 @@ class Configs(object):
     ttl_file_old = '{}/curation-export-old.ttl'.format(working_directory)
     ttl_file_new = '{}/curation-export-new.ttl'.format(working_directory)
     json_cache_file = '{}/curation-json-cache.json'.format(working_directory)
+    ttl_resume_file = '{}/ttl_update_resume.json'.format(working_directory)
 
     def __init__(self, env):
-        # AWS configurations
-        # aws_key = os.environ.get("AWS_PUBLIC_KEY", "aws-key")
-        # aws_secret = os.environ.get("AWS_SECRET_KEY", "aws-secret")
-        # dynamodb_endpoint = os.environ.get("DYNAMODB_ENDPOINT", "http://localhost:4569")
-        # table_arn = os.environ.get("SPARC_METADATA_DYNAMODB_TABLE_ARN", "sparc-metadata-table-arn")
-        # table_id = os.environ.get("SPARC_METADATA_DYNAMODB_TABLE_ID", "prod-sparc-metadata-table-use1")
-        # aws_region = os.environ.get("AWS_REGION_NAME", "us-east-1")
-        # table_partition_key = "datasetId"
-        # table_sort_key = "recordId"
 
         log.info('GETTING CONFIG FOR: {}'.format(env))
 
@@ -60,20 +52,10 @@ class Configs(object):
             blackfynn_host="https://api.blackfynn.net"
             blackfynn_api_token = os.environ.get("BLACKFYNN_API_TOKEN")
             blackfynn_api_secret = os.environ.get("BLACKFYNN_API_SECRET")
-            
-            # self.ssm_path = "/{}/sparc-tools/".format(env)
-            # self.ssm = SSMClient(aws_region, "dev", self.ssm_path, "http://localhost:4583")
 
             self.bf = Blackfynn( api_token=blackfynn_api_token, 
                         api_secret=blackfynn_api_secret, 
                         host=blackfynn_host)
-
-            # self.org_int_id = next(item for item in bf.organizations() if item.name == bf.context.name)
-            
-
-            # self.db_client =  DynamoDBClient(aws_region, 'dev', table_partition_key, "http://localhost:4569",table_id, table_sort_key)
-
-            # log.info("ENV NAME: {}".format(self.db_client.environment_name))
 
         elif env == "prod":
 
@@ -85,34 +67,9 @@ class Configs(object):
             blackfynn_api_token = os.environ.get("BLACKFYNN_API_TOKEN")
             blackfynn_api_secret = os.environ.get("BLACKFYNN_API_SECRET")
             
-            # self.ssm_path = "/{}/sparc-tools/".format(env)
-            # self.ssm = SSMClient(aws_region, "dev", self.ssm_path, "http://localhost:4583")
-
-            # self.session = boto3.Session(region_name = aws_region)
             self.bf = Blackfynn( api_token=blackfynn_api_token, 
                         api_secret=blackfynn_api_secret, 
                         host=blackfynn_host)
-
-            # self.org_int_id = next(item for item in bf.organizations() if item.name == bf.context.name)
-
-            # self.db_client =  DynamoDBClient(aws_region, env, table_partition_key, "http://localhost:4569",table_id, table_sort_key)
-
-
-
-
-            # self.env = "prod"
-            # self.working_directory = "/tmp"
-            # self.last_updated = ssm.get_parameter(Name=ssm_path + "last_updated")
-            # blackfynn_host="https://api.blackfynn.io"
-            # blackfynn_api_token = ssm.get_parameter(Name=ssm_path + "blackfynn-api-key", WithDecryption=True)["Parameter"]["Value"]
-            # blackfynn_api_secret = ssm.get_parameter(Name=ssm_path + "blackfynn-api-secret", WithDecryption=True)["Parameter"]["Value"]
-            # self.bf = Blackfynn( api_token=blackfynn_api_token, 
-            #             api_secret=blackfynn_api_secret, 
-            #             host=blackfynn_host)
-            # self.session = boto3.Session(region_name=aws_region)
-            # self.ssm = self.session.client("ssm", aws_region, env, table_partition_key, dynamodb_endpoint)
-            # self.ssm_path = "/{}/sparc-tools/".format(environment_name)
-            # self.db_client = DynamoDBClient(self, aws_region, env, table_partition_key, dynamodb_endpoint,table_id,table_sort_key)
 
         else:
             raise(Exception('Incorrect input argument'))

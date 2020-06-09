@@ -33,15 +33,17 @@ def to_json():
 @click.argument('id', nargs=-1)
 @click.option('-f', '--force_update', default=False, type=bool)
 @click.option('-fm', '--force_model', default='' )
+@click.option('-r', '--resume', default=False, type=bool )
 
-def update(env, id=None, force_update=False, force_model=''):
+
+def update(env, id=None, force_update=False, force_model='', resume=False):
     if env in ['prod', 'dev']:
         log.info('Starting UPDATE for: {}'.format(env))
         cfg = Configs(env)
         if id:
-            out = update_datasets(cfg, id[0], force_update, force_model)
+            out = update_datasets(cfg, id[0], force_update, force_model, resume)
         else:
-            out = update_datasets(cfg, 'full', force_update, force_model)
+            out = update_datasets(cfg, 'full', force_update, force_model, resume)
     else:
         log.warning('Incorrect argument (''prod'', ''dev'')')
 

@@ -94,7 +94,7 @@ def parse_unit_value(node, name, model_unit = 'None', is_num=True):
 
     # Check if node name exists
     if not name in node:
-        log.info('No value for {}'.format(name))
+        log.warning('No value for {}'.format(name))
         return None
 
     # Check is coded as unit or string
@@ -237,6 +237,14 @@ def get_json():
     with open(JSON_METADATA_FULL, 'r') as f:
         log.info("Loaded '{}'".format(JSON_METADATA_FULL))
         data = json.load(f)
+    return data
+
+def get_resume_list(file_name):
+    '''Load JSON files containing resume info'''
+    with open(file_name, 'r') as f:
+        log.info("Loaded '{}'".format(file_name))
+        data = json.load(f)
+        print(data)
     return data
 
 def get_bf_model(ds, name):

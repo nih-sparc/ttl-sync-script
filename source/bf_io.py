@@ -3,7 +3,7 @@ from blackfynn.base import UnauthorizedException
 from blackfynn.models import ModelPropertyEnumType, BaseCollection
 from base import MODEL_NAMES, SPARC_DATASET_ID
 from requests.exceptions import HTTPError
-import logging
+import logging, math
 from datetime import datetime as DT
 
 log = logging.getLogger(__name__)
@@ -32,6 +32,9 @@ def get_create_hash_ds(bf):
     except:
         log.warning('Failed to get dataset --> Creating dataset: {}"'.format('sparc_curation_sync'))
         ds = bf.create_dataset('sparc_curation_sync')
+
+    # Clear dataset model in case the structure has changed
+    # clear_model(bf,ds,'dataset')
 
     try:
         model = ds.get_model('dataset')
@@ -141,11 +144,22 @@ def clear_dataset(bf, dataset):
 def clear_model(bf, ds, model_name):
     try:
         model = ds.get_model(model_name)
-        recs = model.get_all(limit = model.count)
-        model.delete_records(*recs)
-        model.delete()
     except:
         print('Model {} does not exist in {}'.format(model_name, ds))
+        return
+
+    n = 100
+    nr_batches = math.floor(model.count/n )
+    if nr_batches > 1:
+        for i in range(0, nr_batches):
+            recs = model.get_all(limit = n)
+            model.delete_records(*recs)
+
+    recs = model.get_all(limit = n)
+    model.delete_records(*recs)
+
+    model.delete()
+    
 
 def get_create_model(bf, ds, name, displayName, schema=None, linked=None):
     '''create a model if it doesn't exist,

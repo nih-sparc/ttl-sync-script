@@ -36,7 +36,8 @@ from base import (
     get_as_list,
     parse_unit_value,
     has_bf_access,
-    is_number
+    is_number,
+    get_resume_list
 )
 from pprint import pprint
 
@@ -47,7 +48,7 @@ fp = pyhash.farm_fingerprint_64()
 
 ### ENTRY POINT
 
-def update_datasets(cfg, option = 'full', force_update = False, force_model = ''):
+def update_datasets(cfg, option = 'full', force_update = False, force_model = '', resume = False):
     """
     Update all datasets.
 
@@ -57,6 +58,10 @@ def update_datasets(cfg, option = 'full', force_update = False, force_model = ''
 
     oldJson = {}
     newJson = get_json()
+
+    updated_ds_list = []
+    if resume:
+        updated_ds_list = get_resume_list(cfg.ttl_resume_file )
 
     # If specific datasets is updated, select only current dataset
     if option != 'full':
@@ -77,7 +82,32 @@ def update_datasets(cfg, option = 'full', force_update = False, force_model = ''
 
     # Iterate over Datasets in JSON file and add metadata records...
     for dsId, node in newJson.items():
-        log.info('=== {} ==='.format(dsId))
+
+        # Check if already updated in resume_list
+        if dsId in updated_ds_list:
+            log.info("--- Skipping due to resume: {} ---".format(dsId))
+            continue            
+
+        # Create a new file-logger for this dataset
+        log_file_name = "/tmp/{}.log".format(dsId.replace(':','_'))
+
+        if force_update:
+            try:
+                os.remove(log_file_name)
+            except:
+                pass
+
+        filehandler = logging.FileHandler(log_file_name, 'a')
+        for hdlr in log.handlers[:]:  # remove the existing file handlers
+            if isinstance(hdlr,logging.FileHandler):
+                log.removeHandler(hdlr)
+        filehandler.setLevel(logging.INFO)
+        log.addHandler(filehandler)
+
+        log.warning('=== +++ ===')
+        log.warning('--- {} ==='.format(dsId))
+        log.warning('--- {} ---'.format(str(DT.now())))
+        log.warning('=== +++ ===')
 
         # Create empty cache for records/models 
         record_cache = {m: {} for m in MODEL_NAMES}
@@ -145,6 +175,9 @@ def update_datasets(cfg, option = 'full', force_update = False, force_model = ''
             failedDatasets.append(dsId)
             continue
 
+        updated_ds_list.append(dsId)    
+        with open(cfg.ttl_resume_file , 'w') as f:
+            json.dump(updated_ds_list, f)
 
         log.info('===========================')
 
@@ -196,7 +229,7 @@ def get_record_id_from_node(bf, ds, model, json_id, json_node, record_cache):
             record_cache[model.type][json_id] = model.get(result['id'])
             return result['id']
         else:
-            log.warning('Cannot find item in cache or on Platform: {}'.format(json_id))
+            log.debug('Cannot find item in cache or on Platform: {}'.format(json_id))
             return None
 
 def find_target_record(bf, ds, target_type, json_node, json_id):
@@ -300,7 +333,7 @@ def update_records(bf, ds, sub_node, model_name, record_cache, model_create_fnc,
         else:
             record_cache[model_name].update(zip(json_id_list, model.create_records(record_list)))
             
-        log.info('Finished creating records')
+        log.debug('Finished creating records')
 
     else:
         log.info('No records to be created')
@@ -527,7 +560,7 @@ def add_record_links(bf, ds, record_cache, model, record_id, links, ds_node):
                     linked_rec = add_random_terms(ds, json_id, record_cache)
                     linked_rec_id = linked_rec.id
                 else:
-                    log.warning('** UNABLE to LINK to non-existing record {}:{}'.format(targetType, json_id))
+                    log.warning('UNABLE to LINK ({}:{}) to non-existing record ({}:{})'.format(model.type, record_id, targetType, json_id))
 
             if linked_rec_id:
                 payload.append({
@@ -565,6 +598,7 @@ def add_record_relationships(bf, ds, record_cache, model, record, relationships,
         # Iterate over all items with particular relationship to record
         for json_id in valueList:
 
+            # Because json-model name can be different than Platform model name (e.g. Subject vs Animal_Subject)
             json_model_name = map_target_to_json_model(targetModel)    
 
             item_node = []
@@ -577,10 +611,11 @@ def add_record_relationships(bf, ds, record_cache, model, record, relationships,
                 if linked_rec_id:
                     targetRecordList.append(target_model_instance.get(linked_rec_id))
                 elif targetModel == 'term':
+                    log.debug("Adding a string term to the dataset: {}".format(json_id))
                     linked_rec = add_random_terms(ds, json_id, record_cache)
                     targetRecordList.append(linked_rec)
                 else:
-                    log.warning('** UNABLE to RELATE to non-existing record {}:{}'.format(targetModel, json_id))
+                    log.warning('UNABLE to RELATE record ({}) to non-existing record {}:{}'.format(record.id, targetModel, json_id))
 
         # Add to list
         if len(targetRecordList) > 0:
@@ -625,9 +660,9 @@ def get_unit_map(sub_node):
                 if 'unit' in value:
                     if key in out:
                         if value['unit'] != out[key]['unit'] and out[key]['unit'] != '(no unit)':
-                            log.warning("Multiple units for model-property in single dataset:")
+                            log.warning("Multiple units for model-property in single dataset: {} and {}".format(value['unit'], out[key]['unit']))
                         if out[key]['is_num'] != is_number(value['value']):
-                            log.warning("Not all values are parseable as floats:")
+                            log.warning("Not all values are parseable as floats: {}".format(value['value']))
                             out[key]['is_num'] = False
                     else:
                         if value['unit']:
@@ -674,7 +709,6 @@ def add_protocols(bf, ds, record_cache, sub_node):
     update_records(bf, ds, sub_node, "protocol", record_cache,  create_model, transform)
 
 def add_terms(bf, ds, record_cache, sub_node):
-    log.info("Adding terms...")
 
     def create_model(bf, ds):
         return get_create_model(bf, ds, 'term', 'Term', schema=[
@@ -708,7 +742,6 @@ def add_terms(bf, ds, record_cache, sub_node):
     update_records(bf, ds, sub_node, "term", record_cache,  create_model, transform)
 
 def add_researchers(bf, ds, record_cache, sub_node):
-    log.info("Adding researchers...")
 
     def create_model(bf, ds):
         return get_create_model(bf, ds, 'researcher', 'Researcher', schema=[
@@ -736,7 +769,6 @@ def add_researchers(bf, ds, record_cache, sub_node):
     update_records(bf,ds,sub_node, "researcher", record_cache,  create_model, transform)
 
 def add_subjects(bf, ds, record_cache, sub_node):
-    log.info("Adding subjects...")
     term_model = get_bf_model(ds, 'term')
 
     ## Get Model-unit map for dataset
@@ -913,7 +945,6 @@ def add_subject_links(bf, ds, record_cache, sub_node_name, ds_node):
     def transform_animal(sub_node, localId):
         links = {
             'animalSubjectIsOfSpecies': sub_node.get('animalSubjectIsOfSpecies'),
-            # 'animalSubjectIsOfStrain': sub_node.get('animalSubjectIsOfStrain'),
             'hasBiologicalSex': sub_node.get('hasBiologicalSex'),
             'hasAgeCategory': sub_node.get('hasAgeCategory'),
             'specimenHasIdentifier':sub_node.get('specimenHasIdentifier')
@@ -923,7 +954,6 @@ def add_subject_links(bf, ds, record_cache, sub_node_name, ds_node):
     # Iterate over multiple subject records, single dataset
     for subj_id, subj_node in sub_node.items():
         record_id = get_record_id_from_node(bf, ds, model, subj_id, sub_node, record_cache)
-        # record = get_record_by_id(subj_id, model, record_cache)
 
         if record_id:
             if subtype == 'homo sapiens':
@@ -933,10 +963,9 @@ def add_subject_links(bf, ds, record_cache, sub_node_name, ds_node):
 
             add_record_links(bf, ds, record_cache, model, record_id, links, ds_node)
         else:
-            log.warning('Skipping linking records because record not found.')
+            log.warning('Trying to link to a subject record ({}) that does not exist.'.format(record_id  ))
 
 def add_samples(bf, ds, record_cache, sub_node):
-    log.info("Adding samples to dataset: {}".format(ds.id))
 
     def create_sample_model(bf, ds):
 
@@ -1025,13 +1054,10 @@ def add_sample_links(bf, ds, record_cache, sub_node_name, ds_node):
     model = updateModel(bf, ds)
 
     # Iterate over multiple subject records, single dataset
-    log.info('Adding links')
     for sampleId, subj_node in sub_node.items():
-        # record = get_record_by_id(sampleId, model, record_cache)
         record_id = get_record_id_from_node(bf, ds, model, sampleId, subj_node, record_cache)
         
         if record_id:
-
             out = transform_sample(subj_node)
 
             # Adding Linked Properties
@@ -1053,7 +1079,7 @@ def add_sample_links(bf, ds, record_cache, sub_node_name, ds_node):
                             pkg.relate_to(record)
             
         else:
-            log.warning('Skipping adding records to sample, because record not found')
+            log.warning('Trying to link to a sample record ({}) that does not exist.'.format( record_id ))
                     
 def add_summary(bf, ds, record_cache, sub_node):
     log.info("Adding summary...")
@@ -1167,19 +1193,18 @@ def add_summary_links(bf, ds, record_cache, sub_node_name, ds_node):
     record_id = get_record_id_from_node(bf, ds, model, 'summary', sub_node, record_cache  ) 
     
     if record_id:
-    
+        # Add Linked Properties
         out = transform(sub_node)
         add_record_links(bf, ds, record_cache, model, record_id, out['links'], ds_node )
 
-        # Create relationships
+        # Add Relationships
         rels = out['relationships']
         record = model.get(record_id) #TODO update to use ID only
         add_record_relationships(bf, ds, record_cache, model, record, out['relationships'], ds_node)
     else:
-        log.warning('Skipping adding links to Summary, because record not found')
+        log.warning('Trying to link to a summary record ({}) that does not exist.'.format( record_id ))
 
 def add_awards(bf, ds, record_cache, sub_node):
-    log.info("Adding awards...")
 
     def create_model(bf, ds):
         return get_create_model(bf, ds, 'award', 'Award', schema=[
