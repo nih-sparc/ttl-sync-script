@@ -164,10 +164,6 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
     else:
         raise Exception('Unknown RDF term: %s' % type(o))
 
-
-#%% [markdown]
-### Get each type of metadata:
-#%%
 def getDatasets(gNew, gDelta, output, iriCache):
     # Iterate over Datasets
     for ds in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Resource')):
@@ -266,53 +262,35 @@ def getTags(gNew, gDelta, output, iriCache):
             if tag not in output[datasetId]['tag']:
                 output[datasetId]['tag'].append(tag)
 
-
 def buildJson():
     log.info('Building new meta data json')
 
     outputFile = JSON_METADATA_FULL
-    gOld = Graph()
     gNew = Graph().parse(TTL_FILE_NEW, format='turtle')
-    
-    gDelta = gNew - gOld # contains expired triples
-    gIntersect = gNew & gOld # contains triples shared between both graphs
-
-    # gIntersect, gDeprecated, gDelta = graph_diff(gDelta1, gNew)
-
-    # gDelta.serialize(destination='diff_graph_delta.ttl', format='turtle')
-    # gDeprecated.serialize(destination='diff_graph_deprecated.ttl', format='turtle')
-
-    # gDelta.serialize(destination='diff_graph.ttl', format='turtle')
-
-    # Set namespace prefixes:
-    log.info('Setting namespace prefixes')
-    for ns in (gOld + gNew).namespaces():
-        gDelta.namespace_manager.bind(ns[0], ns[1])
-        gIntersect.namespace_manager.bind(ns[0], ns[1])
 
     output = {}
     iriCache = {}
 
     log.info('Getting datasets...')
-    getDatasets(gNew, gDelta, output, iriCache)
+    getDatasets(gNew, gNew, output, iriCache)
 
     # log.info('Getting Contributors...')
     # getContributors(gNew, gDelta, output, iriCache)
 
     log.info('Getting tags...')
-    getTags(gNew, gDelta, output, iriCache)
+    getTags(gNew, gNew, output, iriCache)
 
     log.info('Getting Researchers...')
-    getResearchers(gNew, gDelta, output, iriCache)
+    getResearchers(gNew, gNew, output, iriCache)
     
     log.info('Getting Subjects...')
-    getSubjects(gNew, gDelta, output, iriCache)
+    getSubjects(gNew, gNew, output, iriCache)
     
     log.info('Getting Samples...')
-    getSamples(gNew, gDelta, output, iriCache)
+    getSamples(gNew, gNew, output, iriCache)
     
     log.info('Getting Protocols...')
-    getProtocols(gNew, gDelta, output, iriCache)
+    getProtocols(gNew, gNew, output, iriCache)
     del iriCache
 
     with open(outputFile, 'w') as f:
