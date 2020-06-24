@@ -1,11 +1,8 @@
 #!/usr/bin/env python
 
-# import boto3
 import os
 import structlog
 from blackfynn import Blackfynn
-# from base import DynamoDBClient, SSMClient
-# from botocore.exceptions import ClientError
 import logging
 
 log = logging.getLogger(__name__)

@@ -8,3 +8,4 @@ __pycache__
 *.ipynb
 curation-json-cache.json
 source/ttl_update.egg-info/
+.DS_Store

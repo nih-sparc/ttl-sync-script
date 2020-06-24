@@ -11,7 +11,7 @@ setup(
     install_requires=[
         'Click','Blackfynn','beautifulsoup4',
         'configparser','rdflib',
-        'requests','structlog'
+        'requests','structlog','pyhash'
     ],
     entry_points='''
         [console_scripts]
