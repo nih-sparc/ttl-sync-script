@@ -1,4 +1,4 @@
-.PHONY: package help post publish serve test
+.PHONY: prepare-dev help
 
 PYTHON_BINARY          ?= "$(which python3.7)"
 PYTHON_VIRTUALENV      ?= "venv"
