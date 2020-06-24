@@ -47,7 +47,8 @@ arrayProps = [
     'hasContactPerson',
     'hasResponsiblePrincipalInvestigator',
     'raw/wasExtractedFromAnatomicalRegion',
-    'description']
+    'description',
+    'synonym']
 
 ### Helper functions ###
 
@@ -320,7 +321,8 @@ def strip_iri(iri):
         'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
         'http://www.w3.org/2000/01/rdf-schema#',
         'http://purl.org/dc/elements/1.1/',
-        'https://scicrunch.org/resolver/RRID:'
+        'https://scicrunch.org/resolver/RRID:',
+        'http://uri.neuinfo.org/nif/nifstd/readable/'
 
         )
 

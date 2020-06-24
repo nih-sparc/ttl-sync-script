@@ -21,17 +21,11 @@ def getVersion(offset_from_latest):
     hrefs = list((x.get('href') for x in soup.find_all(href=lambda x: x and not x.startswith('.'))))
     return unquote(hrefs[offset_from_latest].strip('/'))
 
-def latestVersion():
+def latest_version():
     r = requests.get(BASE_URL)
     soup = BeautifulSoup(r.text, 'html.parser')
     hrefs = (x.get('href') for x in soup.find_all(href=lambda x: x and not x.startswith('.')))
     return unquote(max(hrefs)).strip('/')
-
-def setLastUpdated(cfg, newVersion):
-    cfg.ssm.set('last_updated', newVersion)
-
-def getLastUpdated(cfg):
-    return cfg.ssm.get('last_updated')
 
 def getTTL(version, filename):
     '''Get a version of the sparc metadata file, save it to `filename`'''
@@ -41,21 +35,13 @@ def getTTL(version, filename):
         with open(filename, 'wb') as f:
             copyfileobj(r.raw, f)
 
-def create_diff_ttl():
-    gOld = Graph().parse(TTL_FILE_OLD, format='turtle')
-    gNew = Graph().parse(TTL_FILE_NEW, format='turtle')
-
-    gDiff = gNew-gOld
-    gDiff.serialize(destination=TTL_FILE_DIFF, format='turtle')
+def getSpecificTTLVersion(version):
+    file_name = "{}_{}.ttl".format(TTL_FILE_NEW[:-4], version)
+    getTTL(getVersion(version), file_name)
+    return file_name
 
 def getLatestTTLVersion():
-    # old_version = getVersion(-2)
-    # getTTL(old_version, TTL_FILE_OLD)
-    latest_version = getVersion(-1)
-    getTTL(latest_version, TTL_FILE_NEW)
-
-    # Create TTL Diff file 
-    # create_diff_ttl()
-    return
+    getTTL((latest_version()), TTL_FILE_NEW)
+    return TTL_FILE_NEW
 
     

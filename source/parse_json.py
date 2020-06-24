@@ -43,7 +43,7 @@ from pprint import pprint
 
 logging.basicConfig(format="%(asctime);s%(filename)s:%(lineno)d:\t%(message)s")
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
+log.setLevel(logging.INFO)
 fp = pyhash.farm_fingerprint_64()
 
 ### ENTRY POINT
@@ -277,7 +277,9 @@ def find_target_record(bf, ds, target_type, json_node, json_id):
             "model":target_type,
             "property":"firstName",
             "operator":"=",
-            "value":json_node.get('firstName')}]
+            "value":json_node.get('firstName')}]    
+    elif target_type == 'summary':
+        record_filter = []    
     else:
         return None
         

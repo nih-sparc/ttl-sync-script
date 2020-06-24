@@ -1,29 +1,9 @@
-'''
-> new_metadata.py (full|diff)
-
-With the 'diff' option, compares two SPARC TTLs and get new metadata
-(triples contained in the new TTL but not the old one).
-
-With the 'full' option, gets all metadata from a TTL_FILE_NEW.
-
-Then exports a JSON object with the following structure:
-{
-    datasetId: {
-        "summary": { ... }
-        "researcher": { ... }
-        "subject": { ... }
-        "protocol": { ... }
-        "term": { ... }
-        "sample": { ... }
-        "tag": { ... }
-    }
-}
-'''
 #%%
 import json
 import logging
 import re
 import sys
+import os
 
 from rdflib import BNode, Graph, URIRef, term
 from rdflib.namespace import RDF, RDFS, SKOS, OWL
@@ -41,6 +21,21 @@ from base import (
 
 log = logging.getLogger(__name__)
 
+# Create a new file-logger for this dataset
+log_file_name = "/tmp/sparc-ttl-json.log"
+
+try:
+    os.remove(log_file_name)
+except:
+    pass
+
+filehandler = logging.FileHandler(log_file_name, 'a')
+for hdlr in log.handlers[:]:  # remove the existing file handlers
+    if isinstance(hdlr,logging.FileHandler):
+        log.removeHandler(hdlr)
+filehandler.setLevel(logging.INFO)
+log.addHandler(filehandler)
+
 #%% [markdown]
 ### Helper functions
 #%%
@@ -49,7 +44,7 @@ def addEntry(output, datasetId):
     output.setdefault(datasetId,
         {'summary':{},'contributor':{},'researcher':{},'subject':{},'protocol':{},'term':{},'sample':{}, 'award': {}, 'tag': []})
 
-def parseMeasure(g, node, values):
+def parseMeasure(dsId, g, node, values):
 
     if (node, None, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Measurement')) in g:
         # Current BNode is a measurement
@@ -64,7 +59,8 @@ def parseMeasure(g, node, values):
         value = g.value(subject=node, predicate=URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#value'))
         values['value'] = str(value)
 
-        print("Measurement: {} {}".format(values['value'],values['unit']))
+        if values['unit'] == 'dimensionless':
+            log.warning("Measurement with no unit (value: {}) in {}".format(values['value'], dsId))
 
     elif (node, None, URIRef('http://www.w3.org/2000/01/rdf-schema#Datatype')) in g:
             # Current BNode is a rdfs:Datatype
@@ -85,13 +81,12 @@ def parseMeasure(g, node, values):
 
             values['value'] = "{}-{}".format(str(min_incl), str(max_incl))
 
-
-            print("value: {}-{} {}".format(min_incl, max_incl,unit))
+            if values['unit'] == 'dimensionless':
+                log.warning("Measurement with no unit (value: {}) in {}".format(values['value'], dsId))
 
     else:
-        print('Not a measurement')
+        log.warning("Encountered a B-Node that is not a measurement in {}".format(dsId))
 
-    # print('Exist Measurement')
     return values
 
 
@@ -159,7 +154,7 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
                 data[key] = value
 
     elif isinstance(o, term.BNode):
-        data[key] = parseMeasure(g, o, {'value': '', 'unit': ''})
+        data[key] = parseMeasure(datasetId, g, o, {'value': '', 'unit': ''})
 
     else:
         raise Exception('Unknown RDF term: %s' % type(o))
@@ -262,17 +257,35 @@ def getTags(gNew, gDelta, output, iriCache):
             if tag not in output[datasetId]['tag']:
                 output[datasetId]['tag'].append(tag)
 
-def buildJson():
+def sort_output(input):
+    """ Recursively sort all arrays in input
+    """
+
+    for key, value in input.items():
+        if isinstance(value, list):
+            value.sort()
+        elif isinstance(value, dict):
+            sort_output(value)
+
+def buildJson(version):
     log.info('Building new meta data json')
 
-    outputFile = JSON_METADATA_FULL
-    gNew = Graph().parse(TTL_FILE_NEW, format='turtle')
+    output_file = JSON_METADATA_FULL
+    input_file = TTL_FILE_NEW
+    if version < 0:
+        output_file = "{}_{}.json".format(output_file[:-5], version)
+        input_file = "{}_{}.ttl".format(input_file[:-4], version)
+
+    gNew = Graph().parse(input_file, format='turtle')
 
     output = {}
     iriCache = {}
 
     log.info('Getting datasets...')
     getDatasets(gNew, gNew, output, iriCache)
+
+    log.info("The properties below are expected to be of type array.")
+    log.info(arrayProps)
 
     # log.info('Getting Contributors...')
     # getContributors(gNew, gDelta, output, iriCache)
@@ -293,6 +306,10 @@ def buildJson():
     getProtocols(gNew, gNew, output, iriCache)
     del iriCache
 
-    with open(outputFile, 'w') as f:
-        json.dump(output, f)
+    # Sort all arrays
+    log.info("Sorting all arrays in output")
+    sort_output(output)
+
+    with open(output_file, 'w') as f:
+        json.dump(output, f, sort_keys=True)
         log.info("Added %d datasets to '%s'", len(output), f.name)

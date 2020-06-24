@@ -1,6 +1,0 @@
-black
-flake8
-mock
-moto
-pre-commit
-pytest

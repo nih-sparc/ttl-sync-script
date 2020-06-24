@@ -160,7 +160,6 @@ def clear_model(bf, ds, model_name):
 
     model.delete()
     
-
 def get_create_model(bf, ds, name, displayName, schema=None, linked=None):
     '''create a model if it doesn't exist,
     or retrieve it and update its schema properties'''
