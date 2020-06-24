@@ -21,8 +21,15 @@ def cli():
     pass
 
 @click.command()
-@click.option('-v', '--version', default=0, type=int)
+@click.option('-v', '--version', default=0, type=int, help="Provide an offset from latest version (e.g. -1)")
 def ttl_to_json(version):
+    """Get TTL file and convert to JSON.
+
+    This script will download the TTL file and convert to the JSON structure that
+    is used to import into the platform. You can provide an offset to get an older 
+    version of the TTL file. An offset of of -1 will get the previous TTL file. 
+    """
+
     if version == 0:
         log.info("Getting Latest Version")
         metadata_versions.getLatestTTLVersion()
@@ -41,7 +48,7 @@ def ttl_to_json(version):
 @click.option('-fm', '--force_model', default='', help= "force updating records for a single model (specify the model name)" )
 @click.option('-r', '--resume', default=False, type=bool, help= "If 'True', then resume synchronizing from previous run. This can be used when the previous run failed to complete."  )
 def update(env, id=None, force_update=False, force_model='', resume=False):
-    """Synchronize TTL Script.
+    """Synchronize JSON File and Platform.
 
     This script takes the JSON file that was converted from the TTL file and 
     synchronizes the content with the platform. The script leverages the 
