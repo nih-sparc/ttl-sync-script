@@ -1,9 +1,8 @@
 # sparc-tools
 Method to synchronize metadata from TTL File into Blackfynn Platform. This repository contains a command line application that can get the latest SPARC TTL file and update the metadata on the Blackfynn platform to match that in the TTL file. 
 
-The tool contains three commands:
-`ttl_updata get-ttl`
-`ttl_update to-json`
+The tool contains two commands:
+`ttl_updata ttl-to-json`
 `ttl_update update`
 
 for more information about these commands, look at the help for each of the commands (e.g. `ttl_update get-ttl --help`)
@@ -12,19 +11,20 @@ These reflect the three stages in which the update is carried out. Step 1 is to 
 
 ## Setting up Locally
 
-### Setup virtualenv
-Setup your local python virtual environment
-
-`python3 -m venv venv`
-`source ./venv/bin/activate`
-
 ### Setup Environment Variables
 The script relies on a certain number of environment variables:
  - BLACKFYNN_API_TOKEN
  - BLACKFYNN_API_SECRET
  - BLACKFYNN_API_HOST
 
-### install locally
-There is a CLI that can be used to interact with the functionality using (Click)[https://click.palletsprojects.com/en/7.x/] and is bundled with (Setuptools)[https://click.palletsprojects.com/en/7.x/setuptools/#setuptools-integration]. To install the package, run:
+### Install executable
+To install the `ttl_update` executable in a virtual environment, run:
+`make install`
 
-`pip install --editable .`
+This will create a virtual environment, install the required dependencies and create the `ttl_upate` executable. After installation, you can activate the virtual environment and run the scripts.
+
+## Running against different environments:
+You can run the scripts against production or development environments. When running against development, the script will create a number of datasets that match the SPARC datasets on the production environment. The names of the datasets on the development environment will match the dataset IDs on the production environment.
+
+## Synchronizing data
+The script utilizes a special dataset on the platform to store synchronization information. This information is based on the JSON file that is being synchronized. For each set of records per model in each dataset, we compute a hash based on the sub-section in the JSON file. If any chnages were made in any of the records for a particular model, we remove all records and re-import all records for that model. 
