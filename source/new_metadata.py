@@ -136,7 +136,9 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
                 if key in data:
                     log.warning('Unexpected creation of array for:  %s - %s - %s', datasetId, key, value)
                     log.warning('Existing value for this key     :  %s - %s - %s', datasetId, key, data[key])
-                    log.warning('----- continue to use initial value -----')
+                    log.warning('----- Will use the shortest value -----')
+                    if len(value) < len(data[key]):
+                        data[key] = value
                 else:
                     data[key] = value
 
@@ -149,7 +151,9 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
             if key in data:
                 log.warning('Unexpected creation of array for:  %s - %s - %s', datasetId, key, value)
                 log.warning('Existing value for this key     :  %s - %s - %s', datasetId, key, data[key])
-                log.warning('----- continue to use initial value -----')
+                log.warning('----- Will use the shortest value -----')
+                if len(value) < len(data[key]):
+                    data[key] = value
             else:
                 data[key] = value
 

@@ -52,6 +52,24 @@ def get_create_hash_ds(bf):
         
     return ds
 
+## Get is_locked
+def get_publication_status(bf, ds_id):
+
+    org_int_id = bf.context.int_id
+    host = "{}/".format(bf._api.settings.api_host)
+
+    response = None
+    try:
+        response =  bf._api._get(host = host,
+        base="",
+        endpoint="datasets/{}".format(ds_id))
+    except:
+        log.error("Cannot get dataset information")
+        raise
+
+    return response['publication']['status']
+
+
 ### Conduct search 
 def search_for_records(bf, ds, model_name, filters):
     """ Returns JSON representation of record
@@ -70,6 +88,7 @@ def search_for_records(bf, ds, model_name, filters):
             endpoint="organizations/{}/search/records".format(org_int_id),
             json=payload)
     except:
+        raise
         log.warning("Something went wrong with searching on platform.")
         return None
 
@@ -81,7 +100,7 @@ def search_for_records(bf, ds, model_name, filters):
         
         rec = records[0]
 
-        log.info("Found Record: {}".format(rec['id']))
+        log.info("Found Record: {}-{}".format(model_name, rec['id']))
     else:
         log.info("COULD NOT FIND RECORD: {}".format(filters))
 
