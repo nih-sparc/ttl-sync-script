@@ -22,7 +22,8 @@ from bf_io import (
     get_create_hash_ds,
     clear_model,
     search_for_records,
-    create_links
+    create_links,
+    get_publication_status
 )
 
 from base import (
@@ -154,6 +155,14 @@ def update_datasets(cfg, option = 'full', force_update = False, force_model = ''
                 if cfg.env=='prod' and not has_bf_access(ds):
                     log.warning('UNABLE TO UPDATE DATASET DUE TO PERMISSIONS: {}'.format(dsId))
                     continue
+
+                # Check if dataset is locked
+                publication_status = get_publication_status(cfg.bf, dsId)
+                log.info('PUBLICATION STATUS: {}'.format(publication_status))
+                if publication_status in ['accepted', 'requested', 'failed']:
+                    log.warning('UNABLE TO UPDATE DATASET (status: {}) : {}'.format(publication_status, dsId))
+                    continue
+                
 
                 # Create all records
                 add_data(cfg.bf, ds, dsId, record_cache, node, sync_rec, update_recs)
