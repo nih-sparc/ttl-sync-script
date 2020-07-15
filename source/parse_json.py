@@ -150,6 +150,7 @@ def update_datasets(cfg, option = 'full', force_update = False, force_model = ''
 
                 # Need to get existing dataset, or create new dataset (in dev)
                 ds = get_create_dataset(cfg.bf, dsId)
+                dsId = ds.id
 
                 # Check that curation bot has manager access
                 if cfg.env=='prod' and not has_bf_access(ds):
@@ -228,6 +229,11 @@ def map_target_to_json_model(target_name):
         return 'term'
     
 def get_record_id_from_node(bf, ds, model, json_id, json_node, record_cache):
+    """Find record based on json_node id or full json node
+
+    Checks if JSON Node ID is already available in cache. If not, then search 
+    on platform for identity based on entire json record. 
+    """
 
     if json_id in record_cache[model.type]:
         record = record_cache[model.type][json_id]
@@ -249,6 +255,12 @@ def find_target_record(bf, ds, target_type, json_node, json_id):
 
     Returns JSON representation of record
     """
+
+    # Get all records and search over record_cache...
+
+
+    # Search on platform using search...
+
 
     if target_type == 'award':
         # Award can be identified by 
@@ -1157,7 +1169,7 @@ def add_summary(bf, ds, record_cache, sub_node):
             'hasSizeInBytes': sub_node.get('hasSizeInBytes'),
             'label': sub_node.get('label'),
             'submissionIndex': sub_node.get('submissionIndex'),
-            'title': sub_node.get('title')
+            'title': sub_node.get('title','Title Unknown...')
         }
 
     record_list = []
