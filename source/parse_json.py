@@ -44,7 +44,7 @@ from pprint import pprint
 
 logging.basicConfig(format="%(asctime);s%(filename)s:%(lineno)d:\t%(message)s")
 log = logging.getLogger(__name__)
-log.setLevel(logging.INFO)
+log.setLevel(logging.DEBUG)
 fp = pyhash.farm_fingerprint_64()
 
 ### ENTRY POINT
@@ -236,18 +236,79 @@ def get_record_id_from_node(bf, ds, model, json_id, json_node, record_cache):
     """
 
     if json_id in record_cache[model.type]:
+        # Get directly from cache derived from JSON File
         record = record_cache[model.type][json_id]
         return record.id
     else:
-        result = find_target_record(bf, ds, model.type, json_node, json_id)
-        if result:
-            record_cache[model.type][json_id] = model.get(result['id'])
-            return result['id']
-        else:
-            log.debug('Cannot find item in cache or on Platform: {}'.format(json_id))
-            return None
+        ''' Get all records from Platform if needed and run local search
+            This happens when we expect to have to find a lot of records of this type of model
 
-def find_target_record(bf, ds, target_type, json_node, json_id):
+            If records are not previouslt fetched, get first 500 records and try to find local
+            If that doesn't work, try finding on platform again. 
+        '''
+        if len(record_cache[model.type]) == 0:
+            records = model.get_all(limit=500)
+            record_cache[model.type] = {record.id : record for record in records}
+        
+        # Search locally
+        result = find_target_record_locally(model.type, json_node, json_id, record_cache)
+
+        if result:
+            log.debug('Found result in fetched records')
+            return result.id
+        else:
+            result = find_target_record_remotely(bf, ds, model.type, json_node, json_id)
+        
+            if result:
+                record_cache[model.type][json_id] = model.get(result['id'])
+                return result['id']
+            else:
+                log.debug('Cannot find item in cache or on Platform: {}'.format(json_id))
+                return None
+
+
+def find_target_record_locally(target_type, json_node, json_id, record_cache):
+
+    target_records = record_cache[target_type]
+
+    log.debug('Finding locally on {} records'.format(len(target_records)))
+
+    if target_type == 'award':
+        # Award can be identified by 
+        for record in target_records.values():
+            if record.values['award_id'] == json_node['awardId']:
+                return record
+
+    elif target_type == 'sample':
+        for record in target_records.values():
+            if record.values['id'] == json_id:
+                return record
+
+    elif target_type == 'term':
+        if json_node:
+            for record in target_records.values():
+                if record.values['label'] == get_first(json_node, 'labels', '(no label)'):
+                    return record
+
+        else:
+            for record in target_records.values():
+                if record.values['label'] == json_id:
+                    return record
+
+    elif target_type == 'researcher':
+        for record in target_records.values():
+                if (record.values['lastName'] == json_node.get('lastName', '(no label)')) and (record.values['firstName'] == json_node.get('firstName')):
+                    return record
+
+    elif target_type == 'summary':
+         for record in target_records.values():
+             return record
+    else:
+        return None
+
+    return None
+
+def find_target_record_remotely(bf, ds, target_type, json_node, json_id):
     """Search for record on platform based on JSON identity
 
     Because the JSON ID is not always stored in the platform, we need to find the record
@@ -255,12 +316,6 @@ def find_target_record(bf, ds, target_type, json_node, json_id):
 
     Returns JSON representation of record
     """
-
-    # Get all records and search over record_cache...
-
-
-    # Search on platform using search...
-
 
     if target_type == 'award':
         # Award can be identified by 
@@ -781,7 +836,7 @@ def add_researchers(bf, ds, record_cache, sub_node):
 
     def transform(record_id, sub_node):
         return {
-            'lastName': sub_node.get('lastName', '(no label)'),
+            'lastName': sub_node.get('lastName', '(Unknown)'),
             'firstName': sub_node.get('firstName'),
             'middleName': sub_node.get('middleName'),
             'hasAffiliation': sub_node.get('hasAffiliation'),
@@ -974,7 +1029,6 @@ def add_subject_links(bf, ds, record_cache, sub_node_name, ds_node):
         }
         return links
 
-    # Iterate over multiple subject records, single dataset
     for subj_id, subj_node in sub_node.items():
         record_id = get_record_id_from_node(bf, ds, model, subj_id, sub_node, record_cache)
 
@@ -1017,7 +1071,7 @@ def add_samples(bf, ds, record_cache, sub_node):
             'hasAssignedGroup': sub_node.get('hasAssignedGroup'),
             'hasDigitalArtifactThatIsAboutIt': sub_node.get('hasDigitalArtifactThatIsAboutIt'),
             'extractedFrom':sub_node.get('raw/wasExtractedFromAnatomicalRegion'),
-            'label': sub_node.get('localId'),
+            'label': sub_node.get('localId','(Unknown)'),
             'localExecutionNumber': sub_node.get('localExecutionNumber'),
             'providerNote': sub_node.get('providerNote')
         }
@@ -1239,7 +1293,7 @@ def add_awards(bf, ds, record_cache, sub_node):
         ])
 
     def transform(record_id, sub_node):
-        awardId = sub_node.get('awardId')
+        awardId = sub_node.get('awardId','(Unknown)')
         r = requests.get(url = u'https://api.federalreporter.nih.gov/v1/projects/search?query=projectNumber:*{}*'.format(awardId))
         try:
             data = r.json()
