@@ -4,8 +4,8 @@ setup(
     name='ttl_update',
     version='0.1',
     py_modules=[
-        'sparc_tools',
-        'sparc_tools/base',
+        'metadata_versions', 'new_metadata','parse_json',
+        'base',
         'ttl_update_cli',
         'bf_io','config'],
     install_requires=[
