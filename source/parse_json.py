@@ -180,7 +180,7 @@ def update_datasets(cfg, option = 'full', force_update = False, force_model = ''
             else:
                 log.info('=== No Records changed, skipping dataset ===')
 
-        except BlackfynnException:
+        except (BlackfynnException, Exception) as e:
             log.error("Dataset {} failed to update".format(dsId))
             failedDatasets.append(dsId)
             continue
