@@ -2,7 +2,7 @@
 
 import os
 import structlog
-from blackfynn import Blackfynn
+from pennsieve import Pennsieve
 import logging
 
 log = logging.getLogger(__name__)
@@ -12,7 +12,7 @@ class Configs(object):
     environment_name = os.environ.get("ENVIRONMENT_NAME", "test")
     service_name = os.environ.get("SERVICE_NAME", "sparc-tools")
 
-    # Blackfynn client configurations
+    # Pennsieve client configurations
     working_directory = None
     session = None
     ssm = None
@@ -46,11 +46,11 @@ class Configs(object):
 
             self.env = "dev"
             self.last_updated = None
-            blackfynn_host="https://api.blackfynn.net"
-            blackfynn_api_token = os.environ.get("BLACKFYNN_API_TOKEN")
-            blackfynn_api_secret = os.environ.get("BLACKFYNN_API_SECRET")
+            blackfynn_host="https://api.pennsieve.net"
+            blackfynn_api_token = os.environ.get("PENNSIEVE_API_TOKEN")
+            blackfynn_api_secret = os.environ.get("PENNSIEVE_API_SECRET")
 
-            self.bf = Blackfynn( api_token=blackfynn_api_token, 
+            self.bf = Pennsieve( api_token=blackfynn_api_token,
                         api_secret=blackfynn_api_secret, 
                         host=blackfynn_host)
 
@@ -60,11 +60,11 @@ class Configs(object):
 
             self.env = "prod"
             self.last_updated = None
-            blackfynn_host="https://api.blackfynn.io"
-            blackfynn_api_token = os.environ.get("BLACKFYNN_API_TOKEN")
-            blackfynn_api_secret = os.environ.get("BLACKFYNN_API_SECRET")
+            blackfynn_host="https://api.pennsieve.io"
+            blackfynn_api_token = os.environ.get("PENNSIEVE_API_TOKEN")
+            blackfynn_api_secret = os.environ.get("PENNSIEVE_API_SECRET")
             
-            self.bf = Blackfynn( api_token=blackfynn_api_token, 
+            self.bf = Pennsieve( api_token=blackfynn_api_token,
                         api_secret=blackfynn_api_secret, 
                         host=blackfynn_host)
 

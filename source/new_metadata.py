@@ -166,10 +166,10 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
 def getDatasets(gNew, gDelta, output, iriCache):
     # Iterate over Datasets
     for ds in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Dataset')):
-        log.info(ds)
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", ds)
         datasetId = strip_iri(m.group(0).strip())
         addEntry(output, datasetId)
+        log.info("Adding dataset: " + datasetId)
         for p, o in gDelta.predicate_objects(ds):
             if p == URIRef("http://uri.interlex.org/temp/uris/hasAwardNumber"):
                 getAwards(o, datasetId, output)

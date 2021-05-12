@@ -1,6 +1,6 @@
-from blackfynn import Blackfynn, ModelProperty, LinkedModelProperty
-from blackfynn.base import UnauthorizedException
-from blackfynn.models import ModelPropertyEnumType, BaseCollection
+from pennsieve import Pennsieve, ModelProperty, LinkedModelProperty
+from pennsieve.base import UnauthorizedException
+from pennsieve.models import ModelPropertyEnumType, BaseCollection
 from base import MODEL_NAMES, SPARC_DATASET_ID
 from requests.exceptions import HTTPError
 import logging, math
@@ -8,8 +8,8 @@ from datetime import datetime as DT
 
 log = logging.getLogger(__name__)
 
-### Blackfynn platform I/O:
-class BlackfynnException(Exception):
+### pennsieve platform I/O:
+class pennsieveException(Exception):
     'Represents Exceptions raised by the API'
     pass
 
@@ -34,7 +34,7 @@ def get_create_hash_ds(bf):
         ds = bf.create_dataset('sparc_curation_sync')
 
     # Clear dataset model in case the structure has changed
-    # clear_model(bf,ds,'dataset')
+#     clear_model(bf,ds,'dataset')
 
     try:
         model = ds.get_model('dataset')

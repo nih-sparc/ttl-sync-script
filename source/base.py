@@ -143,8 +143,8 @@ def iri_lookup(g, iri, iriCache=None):
     'Retrieve data about a SPARC term'
     skipIri = (
         'http://uri.interlex.org',
-        'https://api.blackfynn.io',
-        'https://app.blackfynn.io',
+        'https://api.pennsieve.io',
+        'https://app.pennsieve.io',
         'https://orcid.org',
         'https://doi.org',
         'https://ror.org',
@@ -315,8 +315,8 @@ def strip_iri(iri):
         'http://uri.interlex.org/tgbugs/uris/readable/sparc/',
         'http://uri.interlex.org/temp/uris/awards/',
         'http://uri.interlex.org/temp/uris/',
-        'https://api.blackfynn.io/users/',
-        'https://api.blackfynn.io/datasets/',
+        'https://api.pennsieve.io/users/',
+        'https://api.pennsieve.io/datasets/',
 
         'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
         'http://www.w3.org/2000/01/rdf-schema#',

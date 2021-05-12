@@ -7,16 +7,16 @@ import sys
 import os
 import requests
 import math
-import pyhash
-from blackfynn.models import ModelPropertyEnumType, BaseCollection, ModelPropertyType
-from blackfynn import Blackfynn, ModelProperty, LinkedModelProperty
+import hashlib
+from pennsieve.models import ModelPropertyEnumType, BaseCollection, ModelPropertyType
+from pennsieve import Pennsieve, ModelProperty, LinkedModelProperty
 
 from time import time
 from bf_io import (
     authorized,
     get_create_dataset,
     clear_dataset,
-    BlackfynnException,
+    pennsieveException,
     update_sparc_dashboard,
     get_create_model,
     get_create_hash_ds,
@@ -45,7 +45,7 @@ from pprint import pprint
 logging.basicConfig(format="%(asctime);s%(filename)s:%(lineno)d:\t%(message)s")
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
-fp = pyhash.farm_fingerprint_64()
+# fp = pyhash.farm_fingerprint_64()
 
 ### ENTRY POINT
 
@@ -115,8 +115,10 @@ def update_datasets(cfg, option = 'full', force_update = False, force_model = ''
 
         # Check if dataset exist in sync_dict
         if dsId in sync_dict:
+            log.info("found record: {}".format(dsId))
             sync_rec = sync_dict[dsId]
         else:
+            log.info("Did not fiund record: {}".format(dsId))
             sync_rec = sync_rec_model.create_record({'ds_id': dsId})
 
         # Check which records should be updated
@@ -139,6 +141,10 @@ def update_datasets(cfg, option = 'full', force_update = False, force_model = ''
                 'award': True,
                 'summary': True,
                 'tag': True}
+
+        log.info('---')
+        log.info(update_recs)
+        log.info('---')
 
         # If force model is set, then always update provided model
         if force_model:
@@ -180,8 +186,9 @@ def update_datasets(cfg, option = 'full', force_update = False, force_model = ''
             else:
                 log.info('=== No Records changed, skipping dataset ===')
 
-        except (BlackfynnException, Exception) as e:
+        except (pennsieveException, Exception) as e:
             log.error("Dataset {} failed to update".format(dsId))
+            log.error(e)
             failedDatasets.append(dsId)
             continue
 
@@ -374,8 +381,8 @@ def update_records(bf, ds, sub_node, model_name, record_cache, model_create_fnc,
 
     Parameters
     ----------
-    bf: Blackfynn
-        Blackfynn session
+    bf: pennsieve
+        pennsieve session
     ds: BF_Dataset
         Dataset that contains the records
     sub_node: Dict
@@ -426,7 +433,11 @@ def get_recordset_hash(node):
     the new json file is different from the one associated with what is on the platfom, some of the records
     have been altered.
     """
-    return str(fp(json.dumps(node, sort_keys=True)))
+
+    h = hashlib.md5()
+    h.update(json.dumps(node, sort_keys=True).encode('utf-8'))
+    m = h.hexdigest()
+    return m
 
 def add_data(bf, ds, dsId, record_cache, node, sync_rec, update_recs):
     """Iterate over specific models and add records
@@ -435,8 +446,8 @@ def add_data(bf, ds, dsId, record_cache, node, sync_rec, update_recs):
 
      Parameters
     ----------
-    bf: Blackfynn
-        Blackfynn session
+    bf: pennsieve
+        pennsieve session
     ds: BF_Dataset
         Dataset that contains the records
     dsId: str
@@ -519,8 +530,8 @@ def add_links(bf, ds, dsId, record_cache, node, update_recs):
 
      Parameters
     ----------
-    bf: Blackfynn
-        Blackfynn session
+    bf: pennsieve
+        pennsieve session
     ds: BF_Dataset
         Dataset that contains the records
     dsId: str
@@ -594,7 +605,7 @@ def add_record_links(bf, ds, record_cache, model, record_id, links, ds_node):
         ID of Record that is being updated
     links: Array [ {name:  Node }]
         linked values (structured {name: identifier})
-    bf: Blackfynn Session
+    bf: pennsieve Session
     ds_node: Dict
         Dict from JSON with current dataset objects (for lookup)
 
@@ -711,7 +722,7 @@ def add_tags(bf, ds, sub_node, sync_rec, update_recs):
         Dataset that contains the records
     sub_node: [String]
         Representation of tags in JSON file
-    bf: Blackfynn Session
+    bf: pennsieve Session
     """
 
     if update_recs['tag']:
@@ -1169,7 +1180,7 @@ def add_summary(bf, ds, record_cache, sub_node):
             ModelProperty('title', 'Title', title=True), # list
             # ModelProperty('hasResponsiblePrincipalInvestigator', 'Responsible Principal Investigator',
             #             data_type=ModelPropertyEnumType(data_type=str, multi_select=True)),
-            # list of ORCID URLs, blackfynn user IDs, and, and Blackfynn contributor URLs
+            # list of ORCID URLs, pennsieve user IDs, and, and pennsieve contributor URLs
             # TODO: make this a relationship?
             ModelProperty('isDescribedBy', 'Publication URL', data_type=ModelPropertyEnumType(
                 data_type=str, multi_select=True)), # list (of urls)
