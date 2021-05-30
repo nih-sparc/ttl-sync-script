@@ -52,6 +52,40 @@ def get_create_hash_ds(bf):
         
     return ds
 
+def add_file_to_record(bf, ds, record_id, file_id):
+    log.info("Linking file_id: {} to record_id: {}".format(file_id, record_id))
+    host = "{}/".format(bf._api.settings.api_host)
+
+    payload = {
+      "targets": [
+        {
+          "linkTarget": {
+            "ConceptInstance": {
+              "id": record_id
+            }
+          },
+          "relationshipData": [
+          ],
+          "direction": "FromTarget",
+          "relationshipType": "belongs_to"
+        }
+      ],
+      "externalId": file_id
+    }
+
+    try:
+        response = bf._api._post(host = host,
+                                 base="models/v1/",
+                                 endpoint="datasets/{}/proxy/package/instances".format(ds.id),
+                                 json=payload)
+    except:
+        raise
+        log.warning("Something went wrong with adding a file/folder to a record on platform.")
+        return None
+
+
+
+
 ## Get is_locked
 def get_publication_status(bf, ds_id):
 

@@ -16,7 +16,8 @@ from base import (
     TTL_FILE_NEW,
     arrayProps,
     iri_lookup,
-    strip_iri
+    strip_iri,
+    get_recordset_hash
 )
 
 log = logging.getLogger(__name__)
@@ -136,9 +137,11 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
                 if key in data:
                     log.warning('Unexpected creation of array for:  %s - %s - %s', datasetId, key, value)
                     log.warning('Existing value for this key     :  %s - %s - %s', datasetId, key, data[key])
-                    log.warning('----- Will use the shortest value -----')
-                    if len(value) < len(data[key]):
-                        data[key] = value
+                    log.warning('----- Will use the first value after sorting the array -----')
+                    sorted_values = [value, data[key]]
+                    sorted_values.sort()
+                    data[key] = sorted_values[0]
+
                 else:
                     data[key] = value
 
@@ -151,9 +154,11 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
             if key in data:
                 log.warning('Unexpected creation of array for:  %s - %s - %s', datasetId, key, value)
                 log.warning('Existing value for this key     :  %s - %s - %s', datasetId, key, data[key])
-                log.warning('----- Will use the shortest value -----')
-                if len(value) < len(data[key]):
-                    data[key] = value
+                log.warning('----- Will use the first value after sorting the array -----')
+                sorted_values = [value, data[key]]
+                sorted_values.sort()
+                data[key] = sorted_values[0]
+
             else:
                 data[key] = value
 
@@ -206,7 +211,7 @@ def getResearchers(gNew, gDelta, output, iriCache):
 def getSubjects(gNew, gDelta, output, iriCache):
     # Iterate over Subjects
     for s in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Subject')):
-        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)/subjects/(?P<sub>[\w-]+)", s)
+        m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)/subjects/(?P<sub>[\w%-]+)", s)
         datasetId = m.group(1).strip()
         subj_id = m.group(2).strip()
         output[datasetId]['subject'][subj_id] = {}
@@ -252,7 +257,10 @@ def getTags(gNew, gDelta, output, iriCache):
             if isinstance(o, term.URIRef):
                 t = iri_lookup(gNew, o, iriCache)
                 if t:
-                    tag = t['labels'][0]
+                    if isinstance(t, str):
+                        tag = t
+                    else:
+                        tag = t['labels'][0]
                 else:
                     continue
             else:
@@ -271,6 +279,15 @@ def sort_output(input):
             value.sort()
         elif isinstance(value, dict):
             sort_output(value)
+
+def compute_hash_for_records(input):
+    """ Add a hash value for each record"""
+
+    for ds_is, dataset in input.items():
+        for model in {'award', 'contributor', 'protocol', 'researcher','sample','subject', 'term'}:
+            if model in dataset:
+                for key, value in dataset[model].items():
+                    dataset[model][key]['hash'] = get_recordset_hash(value)
 
 def buildJson(version):
     log.info('Building new meta data json')
@@ -301,13 +318,13 @@ def buildJson(version):
 
     log.info('Getting Researchers...')
     getResearchers(gNew, gNew, output, iriCache)
-    
+
     log.info('Getting Subjects...')
     getSubjects(gNew, gNew, output, iriCache)
-    
+
     log.info('Getting Samples...')
     getSamples(gNew, gNew, output, iriCache)
-    
+
     log.info('Getting Protocols...')
     getProtocols(gNew, gNew, output, iriCache)
     del iriCache
@@ -315,6 +332,10 @@ def buildJson(version):
     # Sort all arrays
     log.info("Sorting all arrays in output")
     sort_output(output)
+
+    # Compute hash for all records
+    log.info("Compute hash for all records")
+    compute_hash_for_records(output)
 
     with open(output_file, 'w') as f:
         json.dump(output, f, sort_keys=True)

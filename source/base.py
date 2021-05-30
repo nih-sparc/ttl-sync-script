@@ -9,6 +9,9 @@ from boto3.dynamodb.conditions import Key
 from time import sleep
 import json
 import copy
+import hashlib
+import re
+
 
 from rdflib import BNode, Graph, URIRef, term
 
@@ -48,9 +51,40 @@ arrayProps = [
     'hasResponsiblePrincipalInvestigator',
     'raw/wasExtractedFromAnatomicalRegion',
     'description',
-    'synonym']
+    'synonym',
+    'hasFolderAboutIt',
+    'hasAdditionalFundingInformation',
+    'isDescribedBy',
+    'completenessOfDataset']
 
 ### Helper functions ###
+
+def validate_orcid_url(orcid):
+    regex = re.compile(
+        r'^(?:http|ftp)s?://' # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|' #domain...
+        r'localhost|' #localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})' # ...or ip
+        r'(?::\d+)?' # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+
+    if re.match(regex, "http://www.example.com") is not None:
+        return orcid
+    else:
+        return "https://orcid.org/{}".format(orcid)
+
+def get_recordset_hash(node):
+    """Return hash of current json node
+
+    This method is used to represent a state of record set within the dataset. If the hash between
+    the new json file is different from the one associated with what is on the platfom, some of the records
+    have been altered.
+    """
+
+    h = hashlib.md5()
+    h.update(json.dumps(node, sort_keys=True).encode('utf-8'))
+    m = h.hexdigest()
+    return m
 
 def has_bf_access(ds):
     """Check that curation team has manager access
@@ -313,10 +347,12 @@ def strip_iri(iri):
         'http://uri.interlex.org/tgbugs/uris/readable/technique/',
         'http://uri.interlex.org/tgbugs/uris/readable/aspect/unit/',
         'http://uri.interlex.org/tgbugs/uris/readable/sparc/',
+        'http://uri.interlex.org/tgbugs/uris/readable/',
         'http://uri.interlex.org/temp/uris/awards/',
         'http://uri.interlex.org/temp/uris/',
         'https://api.pennsieve.io/users/',
         'https://api.pennsieve.io/datasets/',
+        'https://api.pennsieve.io/collections/',
 
         'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
         'http://www.w3.org/2000/01/rdf-schema#',

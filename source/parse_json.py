@@ -7,7 +7,6 @@ import sys
 import os
 import requests
 import math
-import hashlib
 from pennsieve.models import ModelPropertyEnumType, BaseCollection, ModelPropertyType
 from pennsieve import Pennsieve, ModelProperty, LinkedModelProperty
 
@@ -23,7 +22,8 @@ from bf_io import (
     clear_model,
     search_for_records,
     create_links,
-    get_publication_status
+    get_publication_status,
+    add_file_to_record
 )
 
 from base import (
@@ -38,14 +38,18 @@ from base import (
     parse_unit_value,
     has_bf_access,
     is_number,
-    get_resume_list
+    get_resume_list,
+    get_recordset_hash,
+    strip_iri,
+    validate_orcid_url
+
+
 )
 from pprint import pprint
 
 logging.basicConfig(format="%(asctime);s%(filename)s:%(lineno)d:\t%(message)s")
 log = logging.getLogger(__name__)
 log.setLevel(logging.DEBUG)
-# fp = pyhash.farm_fingerprint_64()
 
 ### ENTRY POINT
 
@@ -190,7 +194,8 @@ def update_datasets(cfg, option = 'full', force_update = False, force_model = ''
             log.error("Dataset {} failed to update".format(dsId))
             log.error(e)
             failedDatasets.append(dsId)
-            continue
+            # continue
+
 
         updated_ds_list.append(dsId)
         with open(cfg.ttl_resume_file , 'w') as f:
@@ -426,18 +431,34 @@ def update_records(bf, ds, sub_node, model_name, record_cache, model_create_fnc,
     else:
         log.info('No records to be created')
 
-def get_recordset_hash(node):
-    """Return hash of current json node
+def update_record_files(bf, ds, sub_node, model_name, record_cache):
 
-    This method is used to represent a state of record set within the dataset. If the hash between
-    the new json file is different from the one associated with what is on the platfom, some of the records
-    have been altered.
-    """
+    try:
+        for record_name, sub_node in sub_node.items():
+            if 'hasFolderAboutIt' in sub_node:
+                files_in_record = sub_node['hasFolderAboutIt']
+                for linked_file in files_in_record:
+                    linked_file_id = strip_iri(linked_file)
+                    log.info(record_cache[model_name])
+                    record_id = record_cache[model_name][record_name].id
+                    log.info("Adding link to: {}".format(linked_file_id))
+                    add_file_to_record(bf, ds, record_id, linked_file_id)
+    except Exception as e:
+        log.warning('Unable to add file to record of model: {}'.format(model_name))
 
-    h = hashlib.md5()
-    h.update(json.dumps(node, sort_keys=True).encode('utf-8'))
-    m = h.hexdigest()
-    return m
+
+# def get_recordset_hash(node):
+#     """Return hash of current json node
+#
+#     This method is used to represent a state of record set within the dataset. If the hash between
+#     the new json file is different from the one associated with what is on the platfom, some of the records
+#     have been altered.
+#     """
+#
+#     h = hashlib.md5()
+#     h.update(json.dumps(node, sort_keys=True).encode('utf-8'))
+#     m = h.hexdigest()
+#     return m
 
 def add_data(bf, ds, dsId, record_cache, node, sync_rec, update_recs):
     """Iterate over specific models and add records
@@ -785,7 +806,8 @@ def add_protocols(bf, ds, record_cache, sub_node):
             ModelProperty('date', 'Date', data_type=ModelPropertyType(
                     data_type='date' )),
             ModelProperty('protocolHasNumberOfSteps', 'Number of Steps'),
-            ModelProperty('hasNumberOfProtcurAnnotations', 'Number of Protcur Annotations')
+            ModelProperty('hasNumberOfProtcurAnnotations', 'Number of Protcur Annotations'),
+            ModelProperty('recordHash', 'MD5 hash')
         ])
 
     def transform(record_id, sub_node):
@@ -795,10 +817,12 @@ def add_protocols(bf, ds, record_cache, sub_node):
              'date': sub_node.get('date'),
              'publisher': sub_node.get('publisher'),
              'protocolHasNumberOfSteps': sub_node.get('protocolHasNumberOfSteps'),
-             'hasNumberOfProtcurAnnotations': sub_node.get('hasNumberOfProtcurAnnotations')
+             'hasNumberOfProtcurAnnotations': sub_node.get('hasNumberOfProtcurAnnotations'),
+             'recordHash': sub_node.get('hash')
         }
 
     update_records(bf, ds, sub_node, "protocol", record_cache,  create_model, transform)
+    update_record_files(bf, ds, sub_node, 'protocol',record_cache)
 
 def add_terms(bf, ds, record_cache, sub_node):
 
@@ -815,7 +839,9 @@ def add_terms(bf, ds, record_cache, sub_node):
                     data_type=str, multi_select=True)), # is a list
                 ModelProperty('categories', 'Categories', data_type=ModelPropertyEnumType(
                     data_type=str, multi_select=True)), # is a list
-                ModelProperty('iri', 'IRI')
+                ModelProperty('iri', 'IRI'),
+                ModelProperty('recordHash', 'MD5 hash'),
+
             ]
         )
 
@@ -829,6 +855,7 @@ def add_terms(bf, ds, record_cache, sub_node):
             'acronyms': term.get('acronyms'),
             'categories': term.get('categories'),
             'iri': term.get('iri'),
+            'recordHash': sub_node.get('hash'),
         }
 
     update_records(bf, ds, sub_node, "term", record_cache,  create_model, transform)
@@ -845,7 +872,8 @@ def add_researchers(bf, ds, record_cache, sub_node):
                 ModelProperty('hasRole', 'Role', data_type=ModelPropertyEnumType(
                     data_type=str, multi_select=True)), # list
                 ModelProperty('hasORCIDId', 'ORCID iD', data_type=ModelPropertyType(
-                    data_type=str, format='url'))
+                    data_type=str, format='url')),
+                ModelProperty('recordHash', 'MD5 hash'),
         ])
 
     def transform(record_id, sub_node):
@@ -855,7 +883,8 @@ def add_researchers(bf, ds, record_cache, sub_node):
             'middleName': sub_node.get('middleName'),
             'hasAffiliation': sub_node.get('hasAffiliation'),
             'hasRole': sub_node.get('hasRole'),
-            'hasORCIDId': sub_node.get('hasORCIDId')
+            'hasORCIDId': sub_node.get('hasORCIDId'),
+            'recordHash': validate_orcid_url(sub_node.get('hash')),
         }
 
     update_records(bf,ds,sub_node, "researcher", record_cache,  create_model, transform)
@@ -890,6 +919,7 @@ def add_subjects(bf, ds, record_cache, sub_node):
                 ModelProperty('hasGenotype', 'Genotype'),
                 ModelProperty('involvesAnatomicalRegion', 'Anatomical region involved'),
                 ModelProperty('wasAdministeredAnesthesia', 'Anesthesia administered'),
+                ModelProperty('recordHash', 'MD5 hash'),
             ], linked=[
                 LinkedModelProperty('hasBiologicalSex', term_model, 'Biological sex'), # list (this is a bug)
                 LinkedModelProperty('hasAgeCategory', term_model, 'Age category'),
@@ -929,6 +959,7 @@ def add_subjects(bf, ds, record_cache, sub_node):
                 ModelProperty('hasGenotype', 'Genotype'),
                 ModelProperty('involvesAnatomicalRegion', 'Anatomical region involved'),
                 ModelProperty('wasAdministeredAnesthesia', 'Anesthesia administered'),
+                ModelProperty('recordHash', 'MD5 hash'),
             ], linked=[
                 LinkedModelProperty('animalSubjectIsOfSpecies', term_model, 'Animal species'),
                 # LinkedModelProperty('animalSubjectIsOfStrain', term_model, 'Animal strain'),
@@ -951,7 +982,9 @@ def add_subjects(bf, ds, record_cache, sub_node):
             'providerNote': sub_node.get('providerNote'),
             'involvesAnatomicalRegion': sub_node.get('raw/involvesAnatomicalRegion'),
             'hasGenotype': sub_node.get('hasGenotype'),
-            'wasAdministeredAnesthesia': sub_node.get('wasAdministeredAnesthesia')
+            'wasAdministeredAnesthesia': sub_node.get('wasAdministeredAnesthesia'),
+            'recordHash': sub_node.get('hash'),
+
         }
 
         return vals
@@ -969,7 +1002,8 @@ def add_subjects(bf, ds, record_cache, sub_node):
             'hasGenotype': sub_node.get('hasGenotype'),
             'animalSubjectIsOfStrain': sub_node.get('animalSubjectIsOfStrain'),
             'animalSubjectHasWeight': parse_unit_value(sub_node, 'animalSubjectHasWeight'),
-            'wasAdministeredAnesthesia': sub_node.get('wasAdministeredAnesthesia')
+            'wasAdministeredAnesthesia': sub_node.get('wasAdministeredAnesthesia'),
+            'recordHash': sub_node.get('hash'),
         }
 
         try:
@@ -1004,11 +1038,13 @@ def add_subjects(bf, ds, record_cache, sub_node):
         log.info('Creating {} new human_subject Records'.format(len(human_record_list)))
         human_model = create_human_model(bf, ds, unit_map)
         record_cache['human_subject'].update(zip(human_json_id_list,human_model.create_records(human_record_list)))
+        update_record_files(bf, ds, sub_node, 'human_subject',record_cache)
 
     elif len(animal_record_list) > 0:
         log.info('Creating {} new animal_subject Records'.format(len(animal_record_list)))
         animal_model = create_animal_model(bf, ds, unit_map)
         record_cache['animal_subject'].update(zip(animal_json_id_list,animal_model.create_records(animal_record_list)))
+        update_record_files(bf, ds, sub_node, 'animal_subject',record_cache)
 
 def add_subject_links(bf, ds, record_cache, sub_node_name, ds_node):
 
@@ -1076,6 +1112,7 @@ def add_samples(bf, ds, record_cache, sub_node):
                     data_type=str, multi_select=True)), # list
                 ModelProperty('providerNote', 'Provider note', data_type=ModelPropertyEnumType(
                     data_type=str, multi_select=True)), # list
+                ModelProperty('recordHash', 'MD5 hash'),
             ])
 
     def transform(record_id, sub_node):
@@ -1087,10 +1124,12 @@ def add_samples(bf, ds, record_cache, sub_node):
             'extractedFrom':sub_node.get('raw/wasExtractedFromAnatomicalRegion'),
             'label': sub_node.get('localId','(Unknown)'),
             'localExecutionNumber': sub_node.get('localExecutionNumber'),
-            'providerNote': sub_node.get('providerNote')
+            'providerNote': sub_node.get('providerNote'),
+            'recordHash': sub_node.get('hash'),
         }
 
     update_records(bf,ds,sub_node, "sample", record_cache,  create_sample_model, transform)
+    update_record_files(bf, ds, sub_node, 'sample', record_cache)
 
 def add_sample_links(bf, ds, record_cache, sub_node_name, ds_node):
 
@@ -1203,6 +1242,7 @@ def add_summary(bf, ds, record_cache, sub_node):
             ModelProperty('errorIndex', 'Error index'), # number string
             ModelProperty('label', 'Label'),
             ModelProperty('hasSizeInBytes', 'Size (bytes)'), # number string
+            ModelProperty('recordHash', 'MD5 hash'),
         ], linked=[
             LinkedModelProperty('hasAwardNumber', get_bf_model(ds, 'award'), 'Award number'),
 
@@ -1237,7 +1277,8 @@ def add_summary(bf, ds, record_cache, sub_node):
             'hasSizeInBytes': sub_node.get('hasSizeInBytes'),
             'label': sub_node.get('label'),
             'submissionIndex': sub_node.get('submissionIndex'),
-            'title': sub_node.get('title','Title Unknown...')
+            'title': sub_node.get('title','Title Unknown...'),
+            'recordHash': sub_node.get('hash'),
         }
 
     record_list = []
@@ -1303,6 +1344,7 @@ def add_awards(bf, ds, record_cache, sub_node):
             ModelProperty('title', 'Title'),
             ModelProperty('description', 'Description'),
             ModelProperty('principal_investigator', 'Principal Investigator'),
+            ModelProperty('recordHash', 'MD5 hash'),
 
         ])
 
@@ -1317,6 +1359,7 @@ def add_awards(bf, ds, record_cache, sub_node):
                 'title': None,
                 'description': None,
                 'principal_investigator': None,
+                'recordHash': sub_node.get('hash'),
             }
 
         if data['totalCount'] > 0:
@@ -1325,6 +1368,7 @@ def add_awards(bf, ds, record_cache, sub_node):
                 'title': data['items'][0]['title'],
                 'description': data['items'][0]['abstract'],
                 'principal_investigator': data['items'][0]['contactPi'],
+                'recordHash': sub_node.get('hash'),
 
             }
         else:
@@ -1333,6 +1377,7 @@ def add_awards(bf, ds, record_cache, sub_node):
                 'title': None,
                 'description': None,
                 'principal_investigator': None,
+                'recordHash': sub_node.get('hash'),
             }
 
     update_records(bf, ds, sub_node, "award", record_cache,  create_model, transform)

@@ -419,15 +419,6 @@ def update_records(bf, ds, sub_node, model_name, record_cache, model_create_fnc,
     else:
         log.info('No records to be created')
 
-def get_recordset_hash(node):
-    """Return hash of current json node
-
-    This method is used to represent a state of record set within the dataset. If the hash between
-    the new json file is different from the one associated with what is on the platfom, some of the records
-    have been altered.
-    """
-    return str(fp(json.dumps(node, sort_keys=True)))
-
 def add_data(bf, ds, dsId, record_cache, node, sync_rec, update_recs):
     """Iterate over specific models and add records
 
