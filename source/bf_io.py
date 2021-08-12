@@ -1,9 +1,9 @@
-from pennsieve import Pennsieve, ModelProperty, LinkedModelProperty
+from pennsieve import ModelProperty
 from pennsieve.base import UnauthorizedException
-from pennsieve.models import ModelPropertyEnumType, BaseCollection
 from base import MODEL_NAMES, SPARC_DATASET_ID
 from requests.exceptions import HTTPError
-import logging, math
+import logging
+import math
 from datetime import datetime as DT
 
 log = logging.getLogger(__name__)
@@ -140,6 +140,19 @@ def search_for_records(bf, ds, model_name, filters):
 
     return rec
 
+"""
+Create reference
+"""
+def create_reference(bf, dataset, doi, type):
+    dataset_id = dataset.id
+
+    resp = bf._api._put(
+        host = "{}/".format(bf._api.settings.api_host),
+        base = "",
+        endpoint = "datasets/{}/external-publications?doi={}&relationshipType={}".format(dataset_id, doi, type)
+    )
+    return resp
+
 ### Create many links
 def create_links(bf, dataset, model_id, record_id, payload):
 
@@ -184,6 +197,7 @@ def clear_dataset(bf, dataset):
     '''
 
     models = dataset.models().values()
+    log.info(models)
     for m in models:
         if m.type not in MODEL_NAMES:
             continue
@@ -222,11 +236,11 @@ def get_create_model(bf, ds, name, displayName, schema=None, linked=None):
         linked = []
 
     # Try to get model or create model if not exist.
-    model = None
     try:
         model = ds.get_model(name)
-        if schema:
-            raise(Exception("Trying to update schema of existing model"))
+        #TODO: Validate if schema matches
+        # if schema:
+        #     raise(Exception("Trying to update schema of existing model"))
     except HTTPError:
         if schema:
             model = ds.create_model(name, displayName, schema=schema)
@@ -234,18 +248,19 @@ def get_create_model(bf, ds, name, displayName, schema=None, linked=None):
             raise(Exception("Unsuccessful in creating new model --> no schema"))
 
     # Check if links contain linked properties that don't exist and add if the case.
-    newLinks = [l for l in linked if l.name not in model.linked]
-    if newLinks:
+    new_links = [l for l in linked if l.name not in model.linked]
+    if new_links:
         log.info("Has new Property Links for: {}".format(name))
-        model.add_linked_properties(newLinks)
+        model.add_linked_properties(new_links)
 
     return model
 
-#%% [markdown]
-### Update the SPARC Dashboard
+
+# [markdown]
+# Update the SPARC Dashboard
 # This adds an entry to the sparc dashboard for this update run
-#%%
+#
 def update_sparc_dashboard(bf):
     sparc_ds = get_create_dataset(bf, SPARC_DATASET_ID)
     model = sparc_ds.get_model('Update_Run')
-    model.create_record({'name':'TTL Update', 'status': DT.now()})
+    model.create_record({'name': 'TTL Update', 'status': DT.now()})

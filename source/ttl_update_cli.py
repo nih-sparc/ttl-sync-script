@@ -1,9 +1,13 @@
 import click
+
+import bf_io
 import metadata_versions
 import new_metadata
 import os, logging
 from config import Configs
 from parse_json import update_datasets
+from bf_io import clear_dataset
+
 
 
 root_log = logging.getLogger()
@@ -19,6 +23,7 @@ log = logging.getLogger(__name__)
 @click.group()
 def cli():
     pass
+
 
 @click.command()
 @click.option('-v', '--version', default=0, type=int, help="Provide an offset from latest version (e.g. -1)")
@@ -40,6 +45,7 @@ def ttl_to_json(version):
         new_metadata.buildJson(version)
     else:
         log.warning('Incorrect argument for version (version > 0)')
+
 
 @click.command()
 @click.argument('env', nargs=1)
@@ -68,5 +74,24 @@ def update(env, id=None, force_update=False, force_model='', resume=False):
     else:
         log.warning('Incorrect argument (''prod'', ''dev'')')
 
+
+@click.command()
+@click.argument('env', nargs=1)
+@click.argument('dataset_id', nargs=1)
+def clear_dataset(env, dataset_id=None):
+    """Removes all SPARC models from dataset"""
+
+    if env in ['prod', 'dev']:
+        log.info('Starting CLEAN_MODEL for: {}'.format(env))
+        cfg = Configs(env)
+        ds = cfg.bf.get_dataset(dataset_id)
+        log.info(ds)
+        out = bf_io.clear_dataset(None, ds)
+
+    else:
+        log.warning('Incorrect argument (''prod'', ''dev'')')
+
+
+cli.add_command(clear_dataset)
 cli.add_command(ttl_to_json)
 cli.add_command(update)

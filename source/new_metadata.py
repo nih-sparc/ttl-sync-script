@@ -110,7 +110,7 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
         term.URIRef('http://uri.interlex.org/temp/uris/contributorTo'),
         term.URIRef('http://www.w3.org/1999/02/22-rdf-syntax-ns#type'),
         term.URIRef('http://uri.interlex.org/temp/uris/hasUriApi'),
-        term.URIRef('http://uri.interlex.org/temp/uris/hasUriHuman'),
+        # term.URIRef('http://uri.interlex.org/temp/uris/hasUriHuman'),
         term.URIRef('http://uri.interlex.org/temp/uris/hasProtocol'),
         term.URIRef('http://uri.interlex.org/temp/uris/wasUpdatedAtTime')]
     key = strip_iri(p.strip())
