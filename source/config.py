@@ -26,7 +26,7 @@ class Configs(object):
 
     # SPARC Tools configurations
     working_directory = '/tmp'
-    base_url = "https://cassava.ucsd.edu/sparc/archive/exports/"
+    base_url = "https://cassava.ucsd.edu/sparc/exports/"
     json_metadata_expired = "{}/expired_metadata.json".format(working_directory)
     json_metadata_full = "{}/full_metadata.json".format(working_directory)
     json_metadata_new = "{}/new_metadata.json".format(working_directory)

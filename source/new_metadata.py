@@ -170,9 +170,10 @@ def populateValue(g, datasetId, ds, data, p, o, iriCache):
 
 def getDatasets(gNew, gDelta, output, iriCache):
     # Iterate over Datasets
-    for ds in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Dataset')):
+    for ds in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Resource')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", ds)
-        datasetId = strip_iri(m.group(0).strip())
+
+        datasetId = strip_iri(m.group('ds').strip())
         addEntry(output, datasetId)
         log.info("Adding dataset: " + datasetId)
         for p, o in gDelta.predicate_objects(ds):
@@ -199,10 +200,11 @@ def getResearchers(gNew, gDelta, output, iriCache):
     # Iterate over Researchers
     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/contributorTo')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", o)
-        datasetId = strip_iri(m.group(0).strip())
+        datasetId = strip_iri(m.group('ds').strip())
         user = strip_iri(s)
         # user = s #s.split('/')[-1] # either a blackfynn user id or "Firstname-Lastname"
         newEntry = {}
+
         for p2, o2 in gDelta.predicate_objects(s):
             populateValue(gDelta, datasetId, output[datasetId], newEntry, p2, o2, iriCache)
         if newEntry:
@@ -212,8 +214,8 @@ def getSubjects(gNew, gDelta, output, iriCache):
     # Iterate over Subjects
     for s in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Subject')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)/subjects/(?P<sub>[\w%-]+)", s)
-        datasetId = m.group(1).strip()
-        subj_id = m.group(2).strip()
+        datasetId = m.group('ds').strip()
+        subj_id = m.group('sub').strip()
         output[datasetId]['subject'][subj_id] = {}
         for p2, o2 in gDelta.predicate_objects(s):
             populateValue(gDelta, datasetId, output[datasetId],output[datasetId]['subject'][subj_id], p2, o2, iriCache)
@@ -221,20 +223,23 @@ def getSubjects(gNew, gDelta, output, iriCache):
 def getSamples(gNew, gDelta, output, iriCache):
     # Iterate over Samples
     for s in gNew.subjects(RDF.type, URIRef('http://uri.interlex.org/tgbugs/uris/readable/sparc/Sample')):
+
+
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)/samples/(?P<sub>.*$)", s)
-        datasetId = m.group(1).strip()
-        sampleId = m.group(2).strip()
+        datasetId = m.group('ds').strip()
+        sampleId = m.group('sub').strip()
         newEntry = {}
         for p2, o2 in gDelta.predicate_objects(s):
             populateValue(gDelta, datasetId, output[datasetId], newEntry, p2, o2, iriCache)
         if newEntry:
+            print("adding sample")
             output[datasetId]['sample'][sampleId] = newEntry
 
 def getProtocols(gNew, gDelta, output, iriCache):
     # Iterate over Protocols
     for s, o in gNew.subject_objects(URIRef('http://uri.interlex.org/temp/uris/hasProtocol')):
         m = re.search(r".*(?P<ds>N:dataset:[:\w-]+)", s)
-        datasetId = strip_iri(m.group(0).strip())
+        datasetId = strip_iri(m.group('ds').strip())
         url = str(o)
         newEntry = {}
         for p2, o2 in gDelta.predicate_objects(o):
@@ -266,7 +271,7 @@ def getTags(gNew, gDelta, output, iriCache):
             else:
                 tag = str(o)
 
-            datasetId = strip_iri(m.group(0).strip())
+            datasetId = strip_iri(m.group('ds').strip())
             if tag not in output[datasetId]['tag']:
                 output[datasetId]['tag'].append(tag)
 
@@ -308,7 +313,6 @@ def buildJson(version):
 
     log.info("The properties below are expected to be of type array.")
     log.info(arrayProps)
-    log.info(output)
 
     # log.info('Getting Contributors...')
     # getContributors(gNew, gDelta, output, iriCache)

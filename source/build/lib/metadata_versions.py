@@ -17,7 +17,7 @@ from base import (
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
-BASE_URL = 'https://cassava.ucsd.edu/sparc/preview/archive/exports/'
+BASE_URL = 'https://cassava.ucsd.edu/sparc/exports/'
 
 def getVersion(offset_from_latest):
     r = requests.get(BASE_URL)

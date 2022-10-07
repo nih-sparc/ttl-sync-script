@@ -19,5 +19,5 @@ install:
 	python3 -m venv $(PYTHON_VIRTUALENV);\
 	source $(PYTHON_VIRTUALENV)/bin/activate;\
 	cd source;\
-	pip install -U pip;\
-	pip install -e .
+	pip3 install -U pip;\
+	pip3 install -e .

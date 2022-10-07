@@ -17,7 +17,7 @@ from base import (
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)
 
-BASE_URL = 'https://cassava.ucsd.edu/sparc/preview/archive/exports/'
+BASE_URL = 'https://cassava.ucsd.edu/sparc/exports/'
 
 def getVersion(offset_from_latest):
     r = requests.get(BASE_URL)
@@ -33,7 +33,7 @@ def latest_version():
 
 def getTTL(version, filename):
     '''Get a version of the sparc metadata file, save it to `filename`'''
-    url = BASE_URL + quote(version) + '/curation-export.ttl'
+    url = BASE_URL + 'curation-export.ttl'
     log.info(url)
     with requests.get(url, stream=True) as r:
         r.raise_for_status()
